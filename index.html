@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Опросник ДВССК</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Segoe UI', Arial, sans-serif; background: #eef2f5; display: flex; justify-content: center; align-items: center; min-height: 100vh; padding: 20px; }
+        .main-container { width: 100%; max-width: 800px; background: #fff; border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.15); overflow: hidden; }
+        .header-bar { background: linear-gradient(180deg, #1a3e72 0%, #0d2b54 100%); padding: 20px 30px; text-align: center; color: #fff; }
+        .header-bar h1 { font-size: 22px; font-weight: 600; }
+        .content { padding: 30px; }
+        h2 { color: #1a3e72; margin-bottom: 15px; font-size: 20px; font-weight: 600; text-align: center; }
+        .subtitle { text-align: center; color: #555; margin-bottom: 25px; font-size: 14px; }
+        .btn { display: inline-block; padding: 10px 22px; background: #00509e; color: #fff; border: none; border-radius: 4px; cursor: pointer; text-decoration: none; font-size: 14px; margin: 5px; font-weight: 500; }
+        .btn:hover { background: #003d7a; }
+        .btn-green { background: #2d7d46; } .btn-green:hover { background: #236636; }
+        .btn-red { background: #c73e3e; } .btn-red:hover { background: #a33030; }
+        .btn-gray { background: #5a6268; } .btn-gray:hover { background: #464c51; }
+        input, textarea, select { width: 100%; padding: 10px 12px; margin: 8px 0; border: 1px solid #ced4da; border-radius: 4px; font-size: 14px; background: #f8f9fa; }
+        textarea { resize: vertical; min-height: 80px; }
+        .card { background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 6px; padding: 18px; margin: 12px 0; }
+        .question-block { background: #fff; border: 1px solid #ced4da; border-radius: 6px; padding: 18px; margin: 12px 0; }
+        .option-row { display: flex; align-items: center; margin: 10px 0; padding: 6px 8px; background: #f1f4f7; border-radius: 4px; }
+        .option-letter { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; background: #1a3e72; color: #fff; border-radius: 50%; font-weight: bold; font-size: 14px; margin-right: 12px; flex-shrink: 0; }
+        .stat-table { width: 100%; border-collapse: collapse; margin: 15px 0; font-size: 14px; }
+        .stat-table th { background: #1a3e72; color: #fff; padding: 10px 12px; text-align: left; }
+        .stat-table td { padding: 8px 12px; border: 1px solid #dee2e6; }
+        .stat-table tr:nth-child(even) { background: #f8f9fa; }
+        .error { color: #c73e3e; text-align: center; margin: 12px 0; font-weight: 500; }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; padding-bottom: 15px; border-bottom: 2px solid #dee2e6; }
+        .hidden { display: none; }
+        .actions { margin: 20px 0; text-align: center; }
+        canvas { margin-top: 20px; max-height: 300px; }
+        label { display: block; margin: 5px 0; cursor: pointer; }
+        @media (max-width: 600px) { .header-bar h1 { font-size: 18px; } .content { padding: 20px; } }
+    </style>
+</head>
+<body>
+    <div class="main-container">
+        <div class="header-bar"><h1>ДВССК · Опросник</h1></div>
+        <div class="content" id="app"></div>
+    </div>
+
+    <script>
+        const FB = 'https://oprosnik-2fff5-default-rtdb.europe-west1.firebasedatabase.app/.json';
+        let DATA = { polls: [], questions: [], options: [], answers: [] };
+        const ADMIN = { login: 'admin', password: 'admin123' };
+        let user = null, screen = 'login', pid = null, sid = null, eid = null;
+
+        function gid() { return Date.now().toString(36) + Math.random().toString(36).substr(2, 5); }
+
+        async function load() {
+            try {
+                let r = await fetch(FB);
+                let d = await r.json();
+                if (d && d.polls) DATA = d;
+                else DATA = { polls: [], questions: [], options: [], answers: [] };
+            } catch(e) { console.error(e); }
+        }
+
+        async function save() {
+            try { await fetch(FB, { method: 'PUT', body: JSON.stringify(DATA) }); } catch(e) { console.error(e); }
+        }
+
+        function esc(t) { let d = document.createElement('div'); d.textContent = t; return d.innerHTML; }
+
+        function render() {
+            let a = document.getElementById('app');
+            
+            if (screen === 'login') {
+                a.innerHTML = `
+                    <h2>Вход в систему</h2>
+                    <p class="subtitle">Пользователь: введите любой логин. Админ: admin + пароль.</p>
+                    <div id="err" class="error hidden"></div>
+                    <input id="li" placeholder="Логин">
+                    <input type="password" id="pi" placeholder="Пароль (только для админа)">
+                    <div class="actions"><button class="btn" onclick="login()">Войти</button></div>
+                `;
+            }
+            
+            else if (screen === 'user') {
+                let ap = DATA.polls.filter(p => p.status === 'active');
+                let h = `<div class="header"><span>Пользователь: <strong>${esc(user.login)}</strong></span><button class="btn btn-gray" onclick="logout()">Выйти</button></div><h2>Доступные опросы</h2>`;
+                if (ap.length === 0) {
+                    h += '<p style="text-align:center;color:#999;">Нет активных опросов</p>';
+                } else {
+                    ap.forEach(p => {
+                        h += `<div class="card"><strong>${esc(p.title)}</strong><p style="color:#666;font-size:13px;">${esc(p.description||'')}</p><button class="btn" onclick="take('${p.id}')">Пройти</button></div>`;
+                    });
+                }
+                a.innerHTML = h;
+            }
+            
+            else if (screen === 'take') {
+                let p = DATA.polls.find(p => p.id === pid);
+                if (!p) { a.innerHTML = '<p>Опрос не найден</p>'; return; }
+                let qs = DATA.questions.filter(q => q.pollId === pid);
+                let h = `<div class="header"><button class="btn btn-gray" onclick="go('user')">← Назад</button></div><h2>${esc(p.title)}</h2><p style="color:#555;margin-bottom:20px;">${esc(p.description||'')}</p><div id="err" class="error hidden"></div>`;
+                qs.forEach((q, i) => {
+                    h += `<div class="question-block"><p style="font-weight:600;color:#1a3e72;">${i+1}. ${esc(q.questionText)}</p>`;
+                    if (q.questionType === 'text') {
+                        h += `<textarea id="a_${q.id}" placeholder="Ваш ответ"></textarea>`;
+                    } else {
+                        let opts = DATA.options.filter(o => o.questionId === q.id);
+                        let t = q.questionType === 'single' ? 'radio' : 'checkbox';
+                        let n = q.questionType === 'single' ? `a_${q.id}` : `a_${q.id}[]`;
+                        opts.forEach(o => {
+                            h += `<label class="option-row"><span class="option-letter">${o.optionLetter}</span><input type="${t}" name="${n}" value="${o.id}">${esc(o.optionText)}</label>`;
+                        });
+                    }
+                    h += '</div>';
+                });
+                h += `<div class="actions"><button class="btn btn-green" onclick="submit()">Отправить ответы</button></div>`;
+                a.innerHTML = h;
+            }
+            
+            else if (screen === 'admin') {
+                let h = `<div class="header"><span>Админ: <strong>${esc(user.login)}</strong></span><button class="btn btn-gray" onclick="logout()">Выйти</button></div><h2>Управление опросами</h2><div class="actions"><button class="btn" onclick="go('create')">Создать опрос</button></div>`;
+                if (DATA.polls.length === 0) {
+                    h += '<p style="text-align:center;color:#999;">Нет опросов</p>';
+                } else {
+                    DATA.polls.forEach(p => {
+                        h += `<div class="card"><strong>${esc(p.title)}</strong> <span style="color:${p.status==='active'?'#2d7d46':'#c73e3e'};">(${p.status==='active'?'Активен':'Завершён'})</span><br>
+                        <button class="btn" onclick="go('stat','${p.id}')">Статистика</button>
+                        <button class="btn" onclick="go('edit','${p.id}')">Редактировать</button>
+                        <button class="btn" onclick="tog('${p.id}')">${p.status==='active'?'Завершить':'Активировать'}</button>
+                        <button class="btn btn-red" onclick="del('${p.id}')">Удалить</button></div>`;
+                    });
+                }
+                a.innerHTML = h;
+            }
+            
+            else if (screen === 'create') {
+                window.qc = 0; window.oc = {};
+                a.innerHTML = `<div class="header"><button class="btn btn-gray" onclick="go('admin')">← Назад</button></div><h2>Создание опроса</h2><input id="pt" placeholder="Название"><textarea id="pd" placeholder="Описание"></textarea><div id="qa"></div><div class="actions"><button class="btn" onclick="addQ()">Добавить вопрос</button> <button class="btn btn-green" onclick="saveP()">Сохранить</button></div>`;
+            }
+            
+            else if (screen === 'edit') {
+                let p = DATA.polls.find(p => p.id === eid);
+                if (!p) { a.innerHTML = '<p>Опрос не найден</p>'; return; }
+                let qs = DATA.questions.filter(q => q.pollId === eid);
+                let h = `<div class="header"><button class="btn btn-gray" onclick="go('admin')">← Назад</button></div><h2>Редактирование</h2><input id="et" value="${esc(p.title)}"><textarea id="ed">${esc(p.description||'')}</textarea>`;
+                qs.forEach(q => {
+                    h += `<div class="question-block"><input value="${esc(q.questionText)}" data-qid="${q.id}" class="eqt"><select data-qid="${q.id}" class="eqty"><option value="single" ${q.questionType==='single'?'selected':''}>Одиночный</option><option value="multiple" ${q.questionType==='multiple'?'selected':''}>Множественный</option><option value="text" ${q.questionType==='text'?'selected':''}>Текст</option></select>`;
+                    DATA.options.filter(o => o.questionId === q.id).forEach(o => {
+                        h += `<div class="option-row"><span class="option-letter">${o.optionLetter}</span><input value="${esc(o.optionText)}" data-oid="${o.id}" class="eot" style="flex:1;"></div>`;
+                    });
+                    h += `<button class="btn btn-red" style="margin-top:10px;" onclick="delQ('${q.id}')">Удалить вопрос</button></div>`;
+                });
+                h += `<div class="actions"><button class="btn btn-green" onclick="saveE('${p.id}')">Сохранить</button></div>`;
+                a.innerHTML = h;
+            }
+            
+            else if (screen === 'stat') {
+                let p = DATA.polls.find(p => p.id === sid);
+                if (!p) { a.innerHTML = '<p>Опрос не найден</p>'; return; }
+                let qs = DATA.questions.filter(q => q.pollId === sid);
+                let ans = DATA.answers.filter(a => a.pollId === sid);
+                let h = `<div class="header"><button class="btn btn-gray" onclick="go('admin')">← Назад</button><button class="btn btn-green" onclick="exp()">Экспорт в Excel</button></div><h2>${esc(p.title)}</h2><p style="text-align:center;color:#555;">Всего ответов: <strong>${ans.length}</strong></p>`;
+                qs.forEach((q, i) => {
+                    h += `<div class="card"><h3 style="color:#1a3e72;">${i+1}. ${esc(q.questionText)}</h3>`;
+                    if (q.questionType === 'text') {
+                        let ta = ans.filter(a => a.questionId === q.id && a.textAnswer);
+                        h += ta.length ? '<ul>'+ta.map(a => `<li>${esc(a.textAnswer)}</li>`).join('')+'</ul>' : '<p style="color:#999;">Нет ответов</p>';
+                    } else {
+                        let opts = DATA.options.filter(o => o.questionId === q.id);
+                        let qa = ans.filter(a => a.questionId === q.id);
+                        let total = qa.length, cnt = {};
+                        opts.forEach(o => { cnt[o.id] = { l: o.optionLetter, t: o.optionText, c: 0 }; });
+                        qa.forEach(a => { if (cnt[a.optionId]) cnt[a.optionId].c++; });
+                        h += `<table class="stat-table"><tr><th>Вар</th><th>Текст</th><th>Кол-во</th><th>%</th></tr>`;
+                        Object.values(cnt).forEach(v => { let pct = total>0?Math.round(v.c/total*100):0; h += `<tr><td><strong>${v.l}</strong></td><td>${esc(v.t)}</td><td>${v.c}</td><td>${pct}%</td></tr>`; });
+                        h += '</table><canvas id="ch'+i+'" height="200"></canvas>';
+                        setTimeout(() => { let ctx = document.getElementById('ch'+i); if (ctx) new Chart(ctx, { type: 'bar', data: { labels: Object.values(cnt).map(v=>v.l), datasets: [{ label: 'Ответы', data: Object.values(cnt).map(v=>v.c), backgroundColor: '#1a3e72' }] }, options: { scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } } } }); }, 100);
+                    }
+                    h += '</div>';
+                });
+                a.innerHTML = h;
+            }
+        }
+
+        window.login = function() {
+            let l = document.getElementById('li').value.trim();
+            let p = document.getElementById('pi').value;
+            let e = document.getElementById('err');
+            
+            if (!l) {
+                e.textContent = 'Введите логин';
+                e.classList.remove('hidden');
+                return;
+            }
+            
+            if (l === ADMIN.login) {
+                if (p === ADMIN.password) {
+                    user = { login: l, role: 'admin' };
+                    screen = 'admin';
+                } else {
+                    e.textContent = 'Неверный пароль администратора';
+                    e.classList.remove('hidden');
+                    return;
+                }
+            } else {
+                user = { login: l, role: 'user' };
+                screen = 'user';
+            }
+            
+            e.classList.add('hidden');
+            render();
+        };
+
+        window.take = function(id) { pid = id; screen = 'take'; render(); };
+
+        window.submit = async function() {
+            let qs = DATA.questions.filter(q => q.pollId === pid);
+            let err = false;
+            
+            qs.forEach(q => {
+                if (q.questionType === 'text') {
+                    let el = document.getElementById('a_'+q.id);
+                    if (!el || !el.value.trim()) err = true;
+                } else if (q.questionType === 'single') {
+                    if (!document.querySelector(`[name="a_${q.id}"]:checked`)) err = true;
+                } else if (q.questionType === 'multiple') {
+                    if (document.querySelectorAll(`[name="a_${q.id}\\[\\]"]:checked`).length === 0) err = true;
+                }
+            });
+            
+            if (err) {
+                document.getElementById('err').textContent = 'Ответьте на все вопросы';
+                document.getElementById('err').classList.remove('hidden');
+                return;
+            }
+            
+            qs.forEach(q => {
+                if (q.questionType === 'text') {
+                    let val = document.getElementById('a_'+q.id)?.value.trim();
+                    DATA.answers.push({
+                        id: gid(), pollId: pid, questionId: q.id,
+                        userLogin: user.login, optionId: null,
+                        textAnswer: val, submittedAt: new Date().toISOString()
+                    });
+                } else if (q.questionType === 'single') {
+                    let checked = document.querySelector(`[name="a_${q.id}"]:checked`);
+                    DATA.answers.push({
+                        id: gid(), pollId: pid, questionId: q.id,
+                        userLogin: user.login, optionId: checked.value,
+                        textAnswer: null, submittedAt: new Date().toISOString()
+                    });
+                } else if (q.questionType === 'multiple') {
+                    document.querySelectorAll(`[name="a_${q.id}\\[\\]"]:checked`).forEach(c => {
+                        DATA.answers.push({
+                            id: gid(), pollId: pid, questionId: q.id,
+                            userLogin: user.login, optionId: c.value,
+                            textAnswer: null, submittedAt: new Date().toISOString()
+                        });
+                    });
+                }
+            });
+            
+            await save();
+            alert('Ответы приняты!');
+            go('user');
+        };
+
+        window.tog = async function(id) {
+            let p = DATA.polls.find(p => p.id === id);
+            if (p) {
+                p.status = p.status === 'active' ? 'closed' : 'active';
+                await save();
+                render();
+            }
+        };
+
+        window.del = async function(id) {
+            if (confirm('Удалить опрос и все данные?')) {
+                let qids = DATA.questions.filter(q => q.pollId === id).map(q => q.id);
+                DATA.polls = DATA.polls.filter(p => p.id !== id);
+                DATA.questions = DATA.questions.filter(q => q.pollId !== id);
+                DATA.options = DATA.options.filter(o => !qids.includes(o.questionId));
+                DATA.answers = DATA.answers.filter(a => a.pollId !== id);
+                await save();
+                render();
+            }
+        };
+
+        window.addQ = function() {
+            window.qc++;
+            let c = window.qc;
+            let d = document.createElement('div');
+            d.className = 'question-block';
+            d.id = 'qb'+c;
+            d.innerHTML = `<input id="qt${c}" placeholder="Текст вопроса"><select id="qy${c}" onchange="togO(${c})"><option value="single">Одиночный</option><option value="multiple">Множественный</option><option value="text">Текст</option></select><div id="oa${c}" style="margin-top:10px;"><button class="btn" onclick="addO(${c})">Добавить вариант</button></div><button class="btn btn-red" style="margin-top:10px;" onclick="this.parentElement.remove()">Удалить</button>`;
+            document.getElementById('qa').appendChild(d);
+        };
+
+        window.togO = function(c) {
+            document.getElementById('oa'+c).style.display = document.getElementById('qy'+c).value === 'text' ? 'none' : 'block';
+        };
+
+        window.addO = function(c) {
+            if (!window.oc[c]) window.oc[c] = 0;
+            let i = window.oc[c]++;
+            let l = String.fromCharCode(65+i);
+            let d = document.createElement('div');
+            d.className = 'option-row';
+            d.innerHTML = `<span class="option-letter">${l}</span><input id="ot${c}_${i}" placeholder="Вариант" style="flex:1;"><button class="btn btn-red" style="padding:5px 10px;" onclick="this.parentElement.remove()">×</button>`;
+            document.getElementById('oa'+c).insertBefore(d, document.getElementById('oa'+c).lastElementChild);
+        };
+
+        window.saveP = async function() {
+            let t = document.getElementById('pt').value.trim();
+            if (!t) { alert('Введите название'); return; }
+            let id = gid();
+            DATA.polls.push({
+                id, title: t,
+                description: document.getElementById('pd').value.trim(),
+                status: 'active',
+                createdAt: new Date().toISOString()
+            });
+            document.querySelectorAll('[id^="qb"]').forEach(b => {
+                let c = b.id.replace('qb','');
+                let qt = document.getElementById('qt'+c)?.value.trim();
+                let qy = document.getElementById('qy'+c)?.value;
+                if (!qt) return;
+                let qid = gid();
+                DATA.questions.push({ id: qid, pollId: id, questionText: qt, questionType: qy });
+                if (qy !== 'text') {
+                    b.querySelectorAll('input[id^="ot"]').forEach((inp, i) => {
+                        let ot = inp.value.trim();
+                        if (ot) DATA.options.push({
+                            id: gid(), questionId: qid,
+                            optionText: ot,
+                            optionLetter: String.fromCharCode(65+i)
+                        });
+                    });
+                }
+            });
+            await save();
+            alert('Опрос создан!');
+            go('admin');
+        };
+
+        window.delQ = async function(qid) {
+            if (confirm('Удалить вопрос?')) {
+                DATA.questions = DATA.questions.filter(q => q.id !== qid);
+                DATA.options = DATA.options.filter(o => o.questionId !== qid);
+                DATA.answers = DATA.answers.filter(a => a.questionId !== qid);
+                await save();
+                render();
+            }
+        };
+
+        window.saveE = async function(id) {
+            let p = DATA.polls.find(p => p.id === id);
+            if (p) {
+                p.title = document.getElementById('et').value.trim();
+                p.description = document.getElementById('ed').value.trim();
+            }
+            document.querySelectorAll('.eqt').forEach(i => {
+                let q = DATA.questions.find(q => q.id === i.dataset.qid);
+                if (q) q.questionText = i.value.trim();
+            });
+            document.querySelectorAll('.eqty').forEach(s => {
+                let q = DATA.questions.find(q => q.id === s.dataset.qid);
+                if (q) q.questionType = s.value;
+            });
+            document.querySelectorAll('.eot').forEach(i => {
+                let o = DATA.options.find(o => o.id === i.dataset.oid);
+                if (o) o.optionText = i.value.trim();
+            });
+            await save();
+            alert('Сохранено!');
+            go('admin');
+        };
+
+        window.exp = function() {
+            let p = DATA.polls.find(p => p.id === sid);
+            let qs = DATA.questions.filter(q => q.pollId === sid);
+            let ans = DATA.answers.filter(a => a.pollId === sid);
+            let csv = '\uFEFF' + p.title + '\n';
+            qs.forEach(q => {
+                csv += '\n' + q.questionText + '\n';
+                if (q.questionType === 'text') {
+                    csv += 'Ответ\n';
+                    ans.filter(a => a.questionId === q.id && a.textAnswer).forEach(a => {
+                        csv += a.textAnswer + '\n';
+                    });
+                } else {
+                    csv += 'Вариант;Текст;Количество;Процент\n';
+                    let opts = DATA.options.filter(o => o.questionId === q.id);
+                    let qa = ans.filter(a => a.questionId === q.id);
+                    let total = qa.length;
+                    opts.forEach(o => {
+                        let c = qa.filter(a => a.optionId === o.id).length;
+                        csv += `${o.optionLetter};${o.optionText};${c};${total>0?Math.round(c/total*100):0}%\n`;
+                    });
+                }
+            });
+            let blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            let url = URL.createObjectURL(blob);
+            let a = document.createElement('a');
+            a.href = url;
+            a.download = `опрос_${sid}.csv`;
+            a.click();
+            URL.revokeObjectURL(url);
+        };
+
+        window.logout = function() {
+            user = null;
+            screen = 'login';
+            pid = null; sid = null; eid = null;
+            render();
+        };
+
+        window.go = function(s, id) {
+            screen = s;
+            if (s === 'stat') sid = id;
+            if (s === 'edit') eid = id;
+            if (s === 'take') pid = id;
+            render();
+        };
+
+        (async function() {
+            await load();
+            render();
+        })();
+    </script>
+</body>
+</html>
