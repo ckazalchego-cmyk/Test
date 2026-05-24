@@ -68,8 +68,9 @@
 
         function render() {
             let a = document.getElementById('app');
-            if (screen === 'login') a.innerHTML = `<h2>Вход</h2><p class="subtitle">Пользователь: любой логин. Админ: admin + пароль.</p><div id="err" class="error hidden"></div><input id="li" placeholder="Логин"><input type="password" id="pi" placeholder="Пароль (админ)"><div class="actions"><button class="btn" onclick="login()">Войти</button></div>`;
-            else if (screen === 'user') {
+            if (screen === 'login') {
+                a.innerHTML = `<h2>Вход</h2><p class="subtitle">Пользователь: любой логин. Админ: admin + пароль.</p><div id="err" class="error hidden"></div><input id="li" placeholder="Логин"><input type="password" id="pi" placeholder="Пароль (админ)"><div class="actions"><button class="btn" onclick="login()">Войти</button></div>`;
+            } else if (screen === 'user') {
                 let ap = DATA.polls.filter(p => p.status === 'active');
                 let done = new Set(DATA.answers.filter(a => a.userLogin === user.login).map(a => a.pollId));
                 let h = `<div class="header"><span>Пользователь: <strong>${esc(user.login)}</strong></span><button class="btn btn-gray" onclick="logout()">Выйти</button></div><h2>Доступные опросы</h2>`;
@@ -147,7 +148,9 @@
             if (l === ADMIN.login) {
                 if (p === ADMIN.password) { user = { login: l, role: 'admin' }; screen = 'admin'; }
                 else { e.textContent = 'Неверный пароль'; e.classList.remove('hidden'); return; }
-            } else { user = { login: l, role: 'user' }; screen = 'user'; }
+            } else {
+                user = { login: l, role: 'user' }; screen = 'user';
+            }
             e.classList.add('hidden'); render();
         };
 
