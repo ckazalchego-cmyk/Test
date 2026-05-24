@@ -47,25 +47,23 @@
     <script>
         // ====== НАСТРОЙКИ ======
         const FB_URL = 'https://oprosnik-2fff5-default-rtdb.europe-west1.firebasedatabase.app/.json';
-        const ADMIN_LOGIN = 'admin';
-        const ADMIN_PASSWORD = 'admin123';
-
+        
         // ====== ДАННЫЕ ======
-        let DATA = { polls: [], questions: [], options: [], answers: [] };
-        let currentUser = null;
-        let currentScreen = 'login';
-        let pollId = null;
-        let statId = null;
-        let editId = null;
+        var DATA = { polls: [], questions: [], options: [], answers: [] };
+        var currentUser = null;
+        var currentScreen = 'login';
+        var pollId = null;
+        var statId = null;
+        var editId = null;
 
         // ====== УТИЛИТЫ ======
         function gid() { return Date.now().toString(36) + Math.random().toString(36).substr(2, 5); }
-        function esc(t) { let d = document.createElement('div'); d.textContent = t || ''; return d.innerHTML; }
+        function esc(t) { var d = document.createElement('div'); d.textContent = t || ''; return d.innerHTML; }
 
         async function loadData() {
             try {
-                let r = await fetch(FB_URL);
-                let d = await r.json();
+                var r = await fetch(FB_URL);
+                var d = await r.json();
                 if (d && d.polls) DATA = d;
             } catch(e) { console.error(e); }
         }
@@ -76,238 +74,258 @@
 
         // ====== РЕНДЕР ======
         function render() {
-            let a = document.getElementById('app');
-            a.innerHTML = '';
-
-            if (currentScreen === 'login') showLogin(a);
-            else if (currentScreen === 'user') showUser(a);
-            else if (currentScreen === 'take') showTake(a);
-            else if (currentScreen === 'admin') showAdmin(a);
-            else if (currentScreen === 'create') showCreate(a);
-            else if (currentScreen === 'edit') showEdit(a);
-            else if (currentScreen === 'stat') showStat(a);
-        }
-
-        // ====== ЛОГИН ======
-        function showLogin(a) {
-            a.innerHTML = `
-                <h2>Вход в систему</h2>
-                <p class="subtitle">Пользователь: любой логин. Админ: admin + пароль.</p>
-                <div id="err" class="error hidden"></div>
-                <input id="li" placeholder="Логин">
-                <input type="password" id="pi" placeholder="Пароль (только для админа)">
-                <div class="actions"><button class="btn" id="btnLogin">Войти</button></div>
-            `;
-            document.getElementById('btnLogin').onclick = function() {
-                let l = document.getElementById('li').value.trim();
-                let p = document.getElementById('pi').value;
-                let e = document.getElementById('err');
-                if (!l) { e.textContent = 'Введите логин'; e.classList.remove('hidden'); return; }
-                if (l === ADMIN_LOGIN) {
-                    if (p === ADMIN_PASSWORD) { currentUser = { login: l, role: 'admin' }; currentScreen = 'admin'; }
-                    else { e.textContent = 'Неверный пароль'; e.classList.remove('hidden'); return; }
-                } else { currentUser = { login: l, role: 'user' }; currentScreen = 'user'; }
-                e.classList.add('hidden'); render();
-            };
-        }
-
-        // ====== ПОЛЬЗОВАТЕЛЬ ======
-        function showUser(a) {
-            let ap = DATA.polls.filter(p => p.status === 'active');
-            let h = `<div class="header"><span>Пользователь: <strong>${esc(currentUser.login)}</strong></span><button class="btn btn-gray" id="btnLogout">Выйти</button></div><h2>Доступные опросы</h2>`;
-            if (ap.length === 0) h += '<p style="text-align:center;color:#999;">Нет активных опросов</p>';
-            else ap.forEach(p => h += `<div class="card"><strong>${esc(p.title)}</strong><p style="color:#666;font-size:13px;">${esc(p.description||'')}</p><button class="btn btnTake" data-id="${p.id}">Пройти</button></div>`);
-            a.innerHTML = h;
-            document.getElementById('btnLogout').onclick = function() { currentUser = null; currentScreen = 'login'; render(); };
-            a.querySelectorAll('.btnTake').forEach(b => b.onclick = function() { pollId = this.dataset.id; currentScreen = 'take'; render(); });
-        }
-
-        // ====== ПРОХОЖДЕНИЕ ОПРОСА ======
-        function showTake(a) {
-            let p = DATA.polls.find(p => p.id === pollId);
-            if (!p) { a.innerHTML = '<p>Опрос не найден</p>'; return; }
-            let qs = DATA.questions.filter(q => q.pollId === pollId);
-            let h = `<div class="header"><button class="btn btn-gray" id="btnBackUser">← Назад</button></div><h2>${esc(p.title)}</h2><p style="color:#555;margin-bottom:20px;">${esc(p.description||'')}</p><div id="err" class="error hidden"></div>`;
-            qs.forEach((q, i) => {
-                h += `<div class="question-block"><p style="font-weight:600;color:#1a3e72;">${i+1}. ${esc(q.questionText)}</p>`;
-                if (q.questionType === 'text') h += `<textarea id="a_${q.id}" placeholder="Ответ"></textarea>`;
-                else {
-                    let opts = DATA.options.filter(o => o.questionId === q.id);
-                    let t = q.questionType === 'single' ? 'radio' : 'checkbox';
-                    let n = q.questionType === 'single' ? `a_${q.id}` : `a_${q.id}[]`;
-                    opts.forEach(o => h += `<label class="option-row"><span class="option-letter">${o.optionLetter}</span><input type="${t}" name="${n}" value="${o.id}">${esc(o.optionText)}</label>`);
-                }
-                h += '</div>';
-            });
-            h += `<div class="actions"><button class="btn btn-green" id="btnSubmit">Отправить ответы</button></div>`;
-            a.innerHTML = h;
-            document.getElementById('btnBackUser').onclick = function() { currentScreen = 'user'; render(); };
-            document.getElementById('btnSubmit').onclick = async function() {
-                let qs = DATA.questions.filter(q => q.pollId === pollId);
-                let err = false;
-                qs.forEach(q => {
-                    if (q.questionType === 'text') { let el = document.getElementById('a_'+q.id); if (!el || !el.value.trim()) err = true; }
-                    else if (q.questionType === 'single') { if (!document.querySelector(`[name="a_${q.id}"]:checked`)) err = true; }
-                    else if (q.questionType === 'multiple') { if (document.querySelectorAll(`[name="a_${q.id}\\[\\]"]:checked`).length === 0) err = true; }
+            var a = document.getElementById('app');
+            
+            if (currentScreen === 'login') {
+                a.innerHTML = '<h2>Вход в систему</h2><p class="subtitle">Пользователь: любой логин. Админ: admin + пароль.</p><div id="err" class="error hidden"></div><input id="li" placeholder="Логин"><input type="password" id="pi" placeholder="Пароль (только для админа)"><div class="actions"><button class="btn" onclick="doLogin()">Войти</button></div>';
+            }
+            
+            else if (currentScreen === 'user') {
+                var ap = DATA.polls.filter(function(p) { return p.status === 'active'; });
+                var h = '<div class="header"><span>Пользователь: <strong>' + esc(currentUser.login) + '</strong></span><button class="btn btn-gray" onclick="doLogout()">Выйти</button></div><h2>Доступные опросы</h2>';
+                if (ap.length === 0) h += '<p style="text-align:center;color:#999;">Нет активных опросов</p>';
+                else ap.forEach(function(p) {
+                    h += '<div class="card"><strong>' + esc(p.title) + '</strong><p style="color:#666;font-size:13px;">' + esc(p.description||'') + '</p><button class="btn" onclick="doTake(\'' + p.id + '\')">Пройти</button></div>';
                 });
-                if (err) { document.getElementById('err').textContent = 'Ответьте на все вопросы'; document.getElementById('err').classList.remove('hidden'); return; }
-                qs.forEach(q => {
-                    if (q.questionType === 'text') { DATA.answers.push({ id: gid(), pollId, questionId: q.id, userLogin: currentUser.login, optionId: null, textAnswer: document.getElementById('a_'+q.id).value.trim(), submittedAt: new Date().toISOString() }); }
-                    else if (q.questionType === 'single') { DATA.answers.push({ id: gid(), pollId, questionId: q.id, userLogin: currentUser.login, optionId: document.querySelector(`[name="a_${q.id}"]:checked`).value, textAnswer: null, submittedAt: new Date().toISOString() }); }
-                    else if (q.questionType === 'multiple') { document.querySelectorAll(`[name="a_${q.id}\\[\\]"]:checked`).forEach(c => DATA.answers.push({ id: gid(), pollId, questionId: q.id, userLogin: currentUser.login, optionId: c.value, textAnswer: null, submittedAt: new Date().toISOString() })); }
+                a.innerHTML = h;
+            }
+            
+            else if (currentScreen === 'take') {
+                var p = DATA.polls.find(function(p) { return p.id === pollId; });
+                if (!p) { a.innerHTML = '<p>Опрос не найден</p>'; return; }
+                var qs = DATA.questions.filter(function(q) { return q.pollId === pollId; });
+                var h = '<div class="header"><button class="btn btn-gray" onclick="goScreen(\'user\')">← Назад</button></div><h2>' + esc(p.title) + '</h2><p style="color:#555;margin-bottom:20px;">' + esc(p.description||'') + '</p><div id="err" class="error hidden"></div><form onsubmit="return false;">';
+                qs.forEach(function(q, i) {
+                    h += '<div class="question-block"><p style="font-weight:600;color:#1a3e72;">' + (i+1) + '. ' + esc(q.questionText) + '</p>';
+                    if (q.questionType === 'text') h += '<textarea id="a_' + q.id + '" placeholder="Ответ"></textarea>';
+                    else {
+                        var opts = DATA.options.filter(function(o) { return o.questionId === q.id; });
+                        var t = q.questionType === 'single' ? 'radio' : 'checkbox';
+                        var n = q.questionType === 'single' ? 'a_' + q.id : 'a_' + q.id + '[]';
+                        opts.forEach(function(o) {
+                            h += '<label class="option-row"><span class="option-letter">' + o.optionLetter + '</span><input type="' + t + '" name="' + n + '" value="' + o.id + '">' + esc(o.optionText) + '</label>';
+                        });
+                    }
+                    h += '</div>';
                 });
-                await saveData(); alert('Ответы приняты!'); currentScreen = 'user'; render();
-            };
-        }
-
-        // ====== АДМИН ======
-        function showAdmin(a) {
-            let h = `<div class="header"><span>Админ: <strong>${esc(currentUser.login)}</strong></span><button class="btn btn-gray" id="btnLogout">Выйти</button></div><h2>Управление опросами</h2><div class="actions"><button class="btn" id="btnCreate">Создать опрос</button></div>`;
-            if (DATA.polls.length === 0) h += '<p style="text-align:center;color:#999;">Нет опросов</p>';
-            else DATA.polls.forEach(p => {
-                let sc = p.status === 'active' ? '#2d7d46' : '#c73e3e';
-                let st = p.status === 'active' ? 'Активен' : 'Завершён';
-                let tt = p.status === 'active' ? 'Завершить' : 'Активировать';
-                h += `<div class="card"><strong>${esc(p.title)}</strong> <span style="color:${sc};">(${st})</span><br>
-                <button class="btn btnStat" data-id="${p.id}">Статистика</button>
-                <button class="btn btnEdit" data-id="${p.id}">Редактировать</button>
-                <button class="btn btnTog" data-id="${p.id}">${tt}</button>
-                <button class="btn btn-red btnDel" data-id="${p.id}">Удалить</button></div>`;
-            });
-            a.innerHTML = h;
-            document.getElementById('btnLogout').onclick = function() { currentUser = null; currentScreen = 'login'; render(); };
-            document.getElementById('btnCreate').onclick = function() { currentScreen = 'create'; render(); };
-            a.querySelectorAll('.btnStat').forEach(b => b.onclick = function() { statId = this.dataset.id; currentScreen = 'stat'; render(); });
-            a.querySelectorAll('.btnEdit').forEach(b => b.onclick = function() { editId = this.dataset.id; currentScreen = 'edit'; render(); });
-            a.querySelectorAll('.btnTog').forEach(b => b.onclick = async function() {
-                let p = DATA.polls.find(p => p.id === this.dataset.id);
-                if (p) { p.status = p.status === 'active' ? 'closed' : 'active'; await saveData(); render(); }
-            });
-            a.querySelectorAll('.btnDel').forEach(b => b.onclick = async function() {
-                if (confirm('Удалить?')) {
-                    let id = this.dataset.id;
-                    let qids = DATA.questions.filter(q => q.pollId === id).map(q => q.id);
-                    DATA.polls = DATA.polls.filter(p => p.id !== id);
-                    DATA.questions = DATA.questions.filter(q => q.pollId !== id);
-                    DATA.options = DATA.options.filter(o => !qids.includes(o.questionId));
-                    DATA.answers = DATA.answers.filter(a => a.pollId !== id);
-                    await saveData(); render();
-                }
-            });
-        }
-
-        // ====== СОЗДАНИЕ ======
-        function showCreate(a) {
-            a.innerHTML = `<div class="header"><button class="btn btn-gray" id="btnBack">← Назад</button></div><h2>Создание опроса</h2><input id="pt" placeholder="Название"><textarea id="pd" placeholder="Описание"></textarea><div id="qa"></div><div class="actions"><button class="btn" id="btnAddQ">Добавить вопрос</button> <button class="btn btn-green" id="btnSave">Сохранить</button></div>`;
-            document.getElementById('btnBack').onclick = function() { currentScreen = 'admin'; render(); };
-            document.getElementById('btnAddQ').onclick = function() {
-                let c = Date.now();
-                let d = document.createElement('div'); d.className = 'question-block'; d.id = 'qb'+c;
-                d.innerHTML = `<input id="qt${c}" placeholder="Текст вопроса"><select id="qy${c}"><option value="single">Одиночный</option><option value="multiple">Множественный</option><option value="text">Текст</option></select><div id="oa${c}" style="margin-top:10px;"><button class="btn btnAddO" data-c="${c}">Добавить вариант</button></div><button class="btn btn-red btnRemQ" style="margin-top:10px;">Удалить</button>`;
-                document.getElementById('qa').appendChild(d);
-                document.getElementById('qy'+c).onchange = function() { document.getElementById('oa'+c).style.display = this.value === 'text' ? 'none' : 'block'; };
-                d.querySelector('.btnAddO').onclick = function() { addOption(this.dataset.c); };
-                d.querySelector('.btnRemQ').onclick = function() { d.remove(); };
-            };
-            document.getElementById('btnSave').onclick = async function() {
-                let t = document.getElementById('pt').value.trim();
-                if (!t) { alert('Введите название'); return; }
-                let id = gid();
-                DATA.polls.push({ id, title: t, description: document.getElementById('pd').value.trim(), status: 'active', createdAt: new Date().toISOString() });
-                document.querySelectorAll('[id^="qb"]').forEach(b => {
-                    let c = b.id.replace('qb','');
-                    let qt = document.getElementById('qt'+c)?.value.trim();
-                    let qy = document.getElementById('qy'+c)?.value;
-                    if (!qt) return;
-                    let qid = gid(); DATA.questions.push({ id: qid, pollId: id, questionText: qt, questionType: qy });
-                    if (qy !== 'text') b.querySelectorAll('input[id^="ot"]').forEach((inp, i) => { let ot = inp.value.trim(); if (ot) DATA.options.push({ id: gid(), questionId: qid, optionText: ot, optionLetter: String.fromCharCode(65+i) }); });
+                h += '<div class="actions"><button type="button" class="btn btn-green" onclick="doSubmit()">Отправить ответы</button></div></form>';
+                a.innerHTML = h;
+            }
+            
+            else if (currentScreen === 'admin') {
+                var h = '<div class="header"><span>Админ: <strong>' + esc(currentUser.login) + '</strong></span><button class="btn btn-gray" onclick="doLogout()">Выйти</button></div><h2>Управление опросами</h2><div class="actions"><button class="btn" onclick="goScreen(\'create\')">Создать опрос</button></div>';
+                if (DATA.polls.length === 0) h += '<p style="text-align:center;color:#999;">Нет опросов</p>';
+                else DATA.polls.forEach(function(p) {
+                    var sc = p.status === 'active' ? '#2d7d46' : '#c73e3e';
+                    var st = p.status === 'active' ? 'Активен' : 'Завершён';
+                    var tt = p.status === 'active' ? 'Завершить' : 'Активировать';
+                    h += '<div class="card"><strong>' + esc(p.title) + '</strong> <span style="color:' + sc + ';">(' + st + ')</span><br>';
+                    h += '<button class="btn" onclick="goScreen(\'stat\',\'' + p.id + '\')">Статистика</button> ';
+                    h += '<button class="btn" onclick="goScreen(\'edit\',\'' + p.id + '\')">Редактировать</button> ';
+                    h += '<button class="btn" onclick="doToggle(\'' + p.id + '\')">' + tt + '</button> ';
+                    h += '<button class="btn btn-red" onclick="doDelete(\'' + p.id + '\')">Удалить</button></div>';
                 });
-                await saveData(); alert('Создано!'); currentScreen = 'admin'; render();
-            };
+                a.innerHTML = h;
+            }
+            
+            else if (currentScreen === 'create') {
+                a.innerHTML = '<div class="header"><button class="btn btn-gray" onclick="goScreen(\'admin\')">← Назад</button></div><h2>Создание опроса</h2><input id="pt" placeholder="Название"><textarea id="pd" placeholder="Описание"></textarea><div id="qa"></div><div class="actions"><button class="btn" onclick="doAddQuestion()">Добавить вопрос</button> <button class="btn btn-green" onclick="doSavePoll()">Сохранить</button></div>';
+            }
+            
+            else if (currentScreen === 'edit') {
+                var p = DATA.polls.find(function(p) { return p.id === editId; });
+                if (!p) { a.innerHTML = '<p>Не найден</p>'; return; }
+                var qs = DATA.questions.filter(function(q) { return q.pollId === editId; });
+                var h = '<div class="header"><button class="btn btn-gray" onclick="goScreen(\'admin\')">← Назад</button></div><h2>Редактирование</h2><input id="et" value="' + esc(p.title) + '"><textarea id="ed">' + esc(p.description||'') + '</textarea>';
+                qs.forEach(function(q) {
+                    h += '<div class="question-block"><input value="' + esc(q.questionText) + '" data-qid="' + q.id + '" class="eqt"><select data-qid="' + q.id + '" class="eqty"><option value="single"' + (q.questionType==='single'?' selected':'') + '>Одиночный</option><option value="multiple"' + (q.questionType==='multiple'?' selected':'') + '>Множественный</option><option value="text"' + (q.questionType==='text'?' selected':'') + '>Текст</option></select>';
+                    DATA.options.filter(function(o) { return o.questionId === q.id; }).forEach(function(o) {
+                        h += '<div class="option-row"><span class="option-letter">' + o.optionLetter + '</span><input value="' + esc(o.optionText) + '" data-oid="' + o.id + '" class="eot" style="flex:1;"></div>';
+                    });
+                    h += '<button class="btn btn-red" onclick="doDeleteQuestion(\'' + q.id + '\')" style="margin-top:10px;">Удалить вопрос</button></div>';
+                });
+                h += '<div class="actions"><button class="btn btn-green" onclick="doSaveEdit()">Сохранить</button></div>';
+                a.innerHTML = h;
+            }
+            
+            else if (currentScreen === 'stat') {
+                var p = DATA.polls.find(function(p) { return p.id === statId; });
+                if (!p) { a.innerHTML = '<p>Не найден</p>'; return; }
+                var qs = DATA.questions.filter(function(q) { return q.pollId === statId; });
+                var ans = DATA.answers.filter(function(a) { return a.pollId === statId; });
+                var h = '<div class="header"><button class="btn btn-gray" onclick="goScreen(\'admin\')">← Назад</button><button class="btn btn-green" onclick="doExport()">Экспорт в Excel</button></div><h2>' + esc(p.title) + '</h2><p style="text-align:center;color:#555;">Ответов: <strong>' + ans.length + '</strong></p>';
+                qs.forEach(function(q, i) {
+                    h += '<div class="card"><h3 style="color:#1a3e72;">' + (i+1) + '. ' + esc(q.questionText) + '</h3>';
+                    if (q.questionType === 'text') {
+                        var ta = ans.filter(function(a) { return a.questionId === q.id && a.textAnswer; });
+                        h += ta.length ? '<ul>' + ta.map(function(a) { return '<li>' + esc(a.textAnswer) + '</li>'; }).join('') + '</ul>' : '<p style="color:#999;">Нет ответов</p>';
+                    } else {
+                        var opts = DATA.options.filter(function(o) { return o.questionId === q.id; });
+                        var qa = ans.filter(function(a) { return a.questionId === q.id; });
+                        var total = qa.length, cnt = {};
+                        opts.forEach(function(o) { cnt[o.id] = { l: o.optionLetter, t: o.optionText, c: 0 }; });
+                        qa.forEach(function(a) { if (cnt[a.optionId]) cnt[a.optionId].c++; });
+                        h += '<table class="stat-table"><tr><th>Вар</th><th>Текст</th><th>Кол-во</th><th>%</th></tr>';
+                        Object.values(cnt).forEach(function(v) {
+                            var pct = total > 0 ? Math.round(v.c / total * 100) : 0;
+                            h += '<tr><td><strong>' + v.l + '</strong></td><td>' + esc(v.t) + '</td><td>' + v.c + '</td><td>' + pct + '%</td></tr>';
+                        });
+                        h += '</table><canvas id="ch' + i + '" height="200"></canvas>';
+                        setTimeout(function() {
+                            var ctx = document.getElementById('ch' + i);
+                            if (ctx) new Chart(ctx, { type: 'bar', data: { labels: Object.values(cnt).map(function(v) { return v.l; }), datasets: [{ label: 'Ответы', data: Object.values(cnt).map(function(v) { return v.c; }), backgroundColor: '#1a3e72' }] }, options: { scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } } } });
+                        }, 100);
+                    }
+                    h += '</div>';
+                });
+                a.innerHTML = h;
+            }
         }
 
-        function addOption(c) {
-            let area = document.getElementById('oa'+c);
-            let inputs = area.querySelectorAll('input[id^="ot"]');
-            let i = inputs.length;
-            let l = String.fromCharCode(65+i);
-            let d = document.createElement('div'); d.className = 'option-row';
-            d.innerHTML = `<span class="option-letter">${l}</span><input id="ot${c}_${i}" placeholder="Вариант" style="flex:1;"><button class="btn btn-red btnRemO" style="padding:5px 10px;">×</button>`;
-            area.insertBefore(d, area.lastElementChild);
-            d.querySelector('.btnRemO').onclick = function() { d.remove(); };
+        // ====== ГЛОБАЛЬНЫЕ ФУНКЦИИ (ВЫЗЫВАЮТСЯ ИЗ HTML) ======
+        
+        function doLogin() {
+            var l = document.getElementById('li').value.trim();
+            var p = document.getElementById('pi').value;
+            var e = document.getElementById('err');
+            if (!l) { e.textContent = 'Введите логин'; e.classList.remove('hidden'); return; }
+            if (l === 'admin') {
+                if (p === 'admin123') { currentUser = { login: l, role: 'admin' }; currentScreen = 'admin'; }
+                else { e.textContent = 'Неверный пароль'; e.classList.remove('hidden'); return; }
+            } else { currentUser = { login: l, role: 'user' }; currentScreen = 'user'; }
+            e.classList.add('hidden'); render();
         }
 
-        // ====== РЕДАКТИРОВАНИЕ ======
-        function showEdit(a) {
-            let p = DATA.polls.find(p => p.id === editId);
-            if (!p) { a.innerHTML = '<p>Не найден</p>'; return; }
-            let qs = DATA.questions.filter(q => q.pollId === editId);
-            let h = `<div class="header"><button class="btn btn-gray" id="btnBack">← Назад</button></div><h2>Редактирование</h2><input id="et" value="${esc(p.title)}"><textarea id="ed">${esc(p.description||'')}</textarea>`;
-            qs.forEach(q => {
-                h += `<div class="question-block"><input value="${esc(q.questionText)}" data-qid="${q.id}" class="eqt"><select data-qid="${q.id}" class="eqty"><option value="single" ${q.questionType==='single'?'selected':''}>Одиночный</option><option value="multiple" ${q.questionType==='multiple'?'selected':''}>Множественный</option><option value="text" ${q.questionType==='text'?'selected':''}>Текст</option></select>`;
-                DATA.options.filter(o => o.questionId === q.id).forEach(o => h += `<div class="option-row"><span class="option-letter">${o.optionLetter}</span><input value="${esc(o.optionText)}" data-oid="${o.id}" class="eot" style="flex:1;"></div>`);
-                h += `<button class="btn btn-red btnDelQ" data-qid="${q.id}" style="margin-top:10px;">Удалить вопрос</button></div>`;
+        function doLogout() { currentUser = null; currentScreen = 'login'; render(); }
+
+        function goScreen(s, id) {
+            currentScreen = s;
+            if (s === 'stat') statId = id;
+            if (s === 'edit') editId = id;
+            if (s === 'take') pollId = id;
+            if (s === 'user' || s === 'admin') { pollId = null; statId = null; editId = null; }
+            render();
+        }
+
+        function doTake(id) { pollId = id; currentScreen = 'take'; render(); }
+
+        async function doSubmit() {
+            var qs = DATA.questions.filter(function(q) { return q.pollId === pollId; });
+            var err = false;
+            qs.forEach(function(q) {
+                if (q.questionType === 'text') { var el = document.getElementById('a_' + q.id); if (!el || !el.value.trim()) err = true; }
+                else if (q.questionType === 'single') { if (!document.querySelector('[name="a_' + q.id + '"]:checked')) err = true; }
+                else if (q.questionType === 'multiple') { if (document.querySelectorAll('[name="a_' + q.id + '\\[\\]"]:checked').length === 0) err = true; }
             });
-            h += `<div class="actions"><button class="btn btn-green" id="btnSaveE">Сохранить</button></div>`;
-            a.innerHTML = h;
-            document.getElementById('btnBack').onclick = function() { currentScreen = 'admin'; render(); };
-            document.getElementById('btnSaveE').onclick = async function() {
-                let p = DATA.polls.find(p => p.id === editId);
-                if (p) { p.title = document.getElementById('et').value.trim(); p.description = document.getElementById('ed').value.trim(); }
-                a.querySelectorAll('.eqt').forEach(i => { let q = DATA.questions.find(q => q.id === i.dataset.qid); if (q) q.questionText = i.value.trim(); });
-                a.querySelectorAll('.eqty').forEach(s => { let q = DATA.questions.find(q => q.id === s.dataset.qid); if (q) q.questionType = s.value; });
-                a.querySelectorAll('.eot').forEach(i => { let o = DATA.options.find(o => o.id === i.dataset.oid); if (o) o.optionText = i.value.trim(); });
-                await saveData(); alert('Сохранено!'); currentScreen = 'admin'; render();
-            };
-            a.querySelectorAll('.btnDelQ').forEach(b => b.onclick = async function() {
-                if (confirm('Удалить?')) {
-                    let qid = this.dataset.qid;
-                    DATA.questions = DATA.questions.filter(q => q.id !== qid);
-                    DATA.options = DATA.options.filter(o => o.questionId !== qid);
-                    DATA.answers = DATA.answers.filter(a => a.questionId !== qid);
-                    await saveData(); render();
-                }
-            });
-        }
-
-        // ====== СТАТИСТИКА ======
-        function showStat(a) {
-            let p = DATA.polls.find(p => p.id === statId);
-            if (!p) { a.innerHTML = '<p>Не найден</p>'; return; }
-            let qs = DATA.questions.filter(q => q.pollId === statId);
-            let ans = DATA.answers.filter(a => a.pollId === statId);
-            let h = `<div class="header"><button class="btn btn-gray" id="btnBack">← Назад</button><button class="btn btn-green" id="btnExp">Экспорт в Excel</button></div><h2>${esc(p.title)}</h2><p style="text-align:center;color:#555;">Ответов: <strong>${ans.length}</strong></p>`;
-            qs.forEach((q, i) => {
-                h += `<div class="card"><h3 style="color:#1a3e72;">${i+1}. ${esc(q.questionText)}</h3>`;
+            if (err) { document.getElementById('err').textContent = 'Ответьте на все вопросы'; document.getElementById('err').classList.remove('hidden'); return; }
+            qs.forEach(function(q) {
                 if (q.questionType === 'text') {
-                    let ta = ans.filter(a => a.questionId === q.id && a.textAnswer);
-                    h += ta.length ? '<ul>'+ta.map(a => `<li>${esc(a.textAnswer)}</li>`).join('')+'</ul>' : '<p style="color:#999;">Нет ответов</p>';
-                } else {
-                    let opts = DATA.options.filter(o => o.questionId === q.id);
-                    let qa = ans.filter(a => a.questionId === q.id);
-                    let total = qa.length, cnt = {};
-                    opts.forEach(o => { cnt[o.id] = { l: o.optionLetter, t: o.optionText, c: 0 }; });
-                    qa.forEach(a => { if (cnt[a.optionId]) cnt[a.optionId].c++; });
-                    h += `<table class="stat-table"><tr><th>Вар</th><th>Текст</th><th>Кол-во</th><th>%</th></tr>`;
-                    Object.values(cnt).forEach(v => { let pct = total>0?Math.round(v.c/total*100):0; h += `<tr><td><strong>${v.l}</strong></td><td>${esc(v.t)}</td><td>${v.c}</td><td>${pct}%</td></tr>`; });
-                    h += '</table><canvas id="ch'+i+'" height="200"></canvas>';
-                    setTimeout(() => { let ctx = document.getElementById('ch'+i); if (ctx) new Chart(ctx, { type: 'bar', data: { labels: Object.values(cnt).map(v=>v.l), datasets: [{ label: 'Ответы', data: Object.values(cnt).map(v=>v.c), backgroundColor: '#1a3e72' }] }, options: { scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } } } }); }, 100);
+                    DATA.answers.push({ id: gid(), pollId: pollId, questionId: q.id, userLogin: currentUser.login, optionId: null, textAnswer: document.getElementById('a_' + q.id).value.trim(), submittedAt: new Date().toISOString() });
+                } else if (q.questionType === 'single') {
+                    DATA.answers.push({ id: gid(), pollId: pollId, questionId: q.id, userLogin: currentUser.login, optionId: document.querySelector('[name="a_' + q.id + '"]:checked').value, textAnswer: null, submittedAt: new Date().toISOString() });
+                } else if (q.questionType === 'multiple') {
+                    document.querySelectorAll('[name="a_' + q.id + '\\[\\]"]:checked').forEach(function(c) {
+                        DATA.answers.push({ id: gid(), pollId: pollId, questionId: q.id, userLogin: currentUser.login, optionId: c.value, textAnswer: null, submittedAt: new Date().toISOString() });
+                    });
                 }
-                h += '</div>';
             });
-            a.innerHTML = h;
-            document.getElementById('btnBack').onclick = function() { currentScreen = 'admin'; render(); };
-            document.getElementById('btnExp').onclick = function() {
-                let csv = '\uFEFF' + p.title + '\n';
-                qs.forEach(q => {
-                    csv += '\n' + q.questionText + '\n';
-                    if (q.questionType === 'text') { csv += 'Ответ\n'; ans.filter(a => a.questionId === q.id && a.textAnswer).forEach(a => { csv += a.textAnswer + '\n'; }); }
-                    else { csv += 'Вариант;Текст;Количество;Процент\n'; let opts = DATA.options.filter(o => o.questionId === q.id), qa = ans.filter(a => a.questionId === q.id), total = qa.length; opts.forEach(o => { let c = qa.filter(a => a.optionId === o.id).length; csv += `${o.optionLetter};${o.optionText};${c};${total>0?Math.round(c/total*100):0}%\n`; }); }
-                });
-                let blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-                let url = URL.createObjectURL(blob);
-                let d = document.createElement('a'); d.href = url; d.download = `опрос_${statId}.csv`; d.click(); URL.revokeObjectURL(url);
-            };
+            await saveData(); alert('Ответы приняты!'); currentScreen = 'user'; render();
+        }
+
+        async function doToggle(id) { var p = DATA.polls.find(function(p) { return p.id === id; }); if (p) { p.status = p.status === 'active' ? 'closed' : 'active'; await saveData(); render(); } }
+
+        async function doDelete(id) {
+            if (confirm('Удалить?')) {
+                var qids = DATA.questions.filter(function(q) { return q.pollId === id; }).map(function(q) { return q.id; });
+                DATA.polls = DATA.polls.filter(function(p) { return p.id !== id; });
+                DATA.questions = DATA.questions.filter(function(q) { return q.pollId !== id; });
+                DATA.options = DATA.options.filter(function(o) { return !qids.includes(o.questionId); });
+                DATA.answers = DATA.answers.filter(function(a) { return a.pollId !== id; });
+                await saveData(); render();
+            }
+        }
+
+        function doAddQuestion() {
+            var c = Date.now();
+            var d = document.createElement('div'); d.className = 'question-block'; d.id = 'qb' + c;
+            d.innerHTML = '<input id="qt' + c + '" placeholder="Текст вопроса"><select id="qy' + c + '" onchange="document.getElementById(\'oa' + c + '\').style.display = this.value === \'text\' ? \'none\' : \'block\'"><option value="single">Одиночный</option><option value="multiple">Множественный</option><option value="text">Текст</option></select><div id="oa' + c + '" style="margin-top:10px;"><button class="btn" onclick="doAddOption(\'' + c + '\')">Добавить вариант</button></div><button class="btn btn-red" onclick="this.parentElement.remove()" style="margin-top:10px;">Удалить</button>';
+            document.getElementById('qa').appendChild(d);
+        }
+
+        function doAddOption(c) {
+            var area = document.getElementById('oa' + c);
+            var inputs = area.querySelectorAll('input[id^="ot"]');
+            var i = inputs.length;
+            var l = String.fromCharCode(65 + i);
+            var d = document.createElement('div'); d.className = 'option-row';
+            d.innerHTML = '<span class="option-letter">' + l + '</span><input id="ot' + c + '_' + i + '" placeholder="Вариант" style="flex:1;"><button class="btn btn-red" onclick="this.parentElement.remove()" style="padding:5px 10px;">×</button>';
+            area.insertBefore(d, area.lastElementChild);
+        }
+
+        async function doSavePoll() {
+            var t = document.getElementById('pt').value.trim();
+            if (!t) { alert('Введите название'); return; }
+            var id = gid();
+            DATA.polls.push({ id: id, title: t, description: document.getElementById('pd').value.trim(), status: 'active', createdAt: new Date().toISOString() });
+            document.querySelectorAll('[id^="qb"]').forEach(function(b) {
+                var c = b.id.replace('qb', '');
+                var qt = document.getElementById('qt' + c)?.value.trim();
+                var qy = document.getElementById('qy' + c)?.value;
+                if (!qt) return;
+                var qid = gid();
+                DATA.questions.push({ id: qid, pollId: id, questionText: qt, questionType: qy });
+                if (qy !== 'text') {
+                    b.querySelectorAll('input[id^="ot"]').forEach(function(inp, i) {
+                        var ot = inp.value.trim();
+                        if (ot) DATA.options.push({ id: gid(), questionId: qid, optionText: ot, optionLetter: String.fromCharCode(65 + i) });
+                    });
+                }
+            });
+            await saveData(); alert('Создано!'); currentScreen = 'admin'; render();
+        }
+
+        async function doDeleteQuestion(qid) {
+            if (confirm('Удалить?')) {
+                DATA.questions = DATA.questions.filter(function(q) { return q.id !== qid; });
+                DATA.options = DATA.options.filter(function(o) { return o.questionId !== qid; });
+                DATA.answers = DATA.answers.filter(function(a) { return a.questionId !== qid; });
+                await saveData(); render();
+            }
+        }
+
+        async function doSaveEdit() {
+            var p = DATA.polls.find(function(p) { return p.id === editId; });
+            if (p) { p.title = document.getElementById('et').value.trim(); p.description = document.getElementById('ed').value.trim(); }
+            document.querySelectorAll('.eqt').forEach(function(i) { var q = DATA.questions.find(function(q) { return q.id === i.dataset.qid; }); if (q) q.questionText = i.value.trim(); });
+            document.querySelectorAll('.eqty').forEach(function(s) { var q = DATA.questions.find(function(q) { return q.id === s.dataset.qid; }); if (q) q.questionType = s.value; });
+            document.querySelectorAll('.eot').forEach(function(i) { var o = DATA.options.find(function(o) { return o.id === i.dataset.oid; }); if (o) o.optionText = i.value.trim(); });
+            await saveData(); alert('Сохранено!'); currentScreen = 'admin'; render();
+        }
+
+        function doExport() {
+            var p = DATA.polls.find(function(p) { return p.id === statId; });
+            var qs = DATA.questions.filter(function(q) { return q.pollId === statId; });
+            var ans = DATA.answers.filter(function(a) { return a.pollId === statId; });
+            var csv = '\uFEFF' + p.title + '\n';
+            qs.forEach(function(q) {
+                csv += '\n' + q.questionText + '\n';
+                if (q.questionType === 'text') {
+                    csv += 'Ответ\n';
+                    ans.filter(function(a) { return a.questionId === q.id && a.textAnswer; }).forEach(function(a) { csv += a.textAnswer + '\n'; });
+                } else {
+                    csv += 'Вариант;Текст;Количество;Процент\n';
+                    var opts = DATA.options.filter(function(o) { return o.questionId === q.id; });
+                    var qa = ans.filter(function(a) { return a.questionId === q.id; });
+                    var total = qa.length;
+                    opts.forEach(function(o) {
+                        var c = qa.filter(function(a) { return a.optionId === o.id; }).length;
+                        csv += o.optionLetter + ';' + o.optionText + ';' + c + ';' + (total > 0 ? Math.round(c / total * 100) : 0) + '%\n';
+                    });
+                }
+            });
+            var blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            var url = URL.createObjectURL(blob);
+            var a = document.createElement('a'); a.href = url; a.download = 'опрос_' + statId + '.csv'; a.click(); URL.revokeObjectURL(url);
         }
 
         // ====== ЗАПУСК ======
