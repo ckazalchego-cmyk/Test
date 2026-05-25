@@ -45,291 +45,826 @@
     </div>
 
     <script>
-        // ====== НАСТРОЙКИ ======
-        const FB_URL = 'https://oprosnik-2fff5-default-rtdb.europe-west1.firebasedatabase.app/.json';
+        // ==========================================
+        // НАСТРОЙКИ
+        // ==========================================
+        var FB_URL = 'https://oprosnik-2fff5-default-rtdb.europe-west1.firebasedatabase.app/.json';
         
-        // ====== ДАННЫЕ ======
+        // ==========================================
+        // ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ
+        // ==========================================
         var DATA = { polls: [], questions: [], options: [], answers: [] };
         var currentUser = null;
         var currentScreen = 'login';
-        var pollId = null;
-        var statId = null;
-        var editId = null;
+        var selectedPollId = null;
+        var selectedStatId = null;
+        var selectedEditId = null;
+        var questionCounter = 0;
+        var optionCounters = {};
 
-        // ====== УТИЛИТЫ ======
-        function gid() { return Date.now().toString(36) + Math.random().toString(36).substr(2, 5); }
-        function esc(t) { var d = document.createElement('div'); d.textContent = t || ''; return d.innerHTML; }
+        // ==========================================
+        // УТИЛИТЫ
+        // ==========================================
+        function generateId() {
+            return Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
+        }
+
+        function escapeHtml(text) {
+            var div = document.createElement('div');
+            div.textContent = text || '';
+            return div.innerHTML;
+        }
 
         async function loadData() {
             try {
-                var r = await fetch(FB_URL);
-                var d = await r.json();
-                if (d && d.polls) DATA = d;
-            } catch(e) { console.error(e); }
+                var response = await fetch(FB_URL);
+                var data = await response.json();
+                if (data && data.polls) {
+                    DATA = data;
+                } else {
+                    DATA = { polls: [], questions: [], options: [], answers: [] };
+                }
+            } catch (error) {
+                console.log('Ошибка загрузки:', error);
+            }
         }
 
         async function saveData() {
-            try { await fetch(FB_URL, { method: 'PUT', body: JSON.stringify(DATA) }); } catch(e) { console.error(e); }
-        }
-
-        // ====== РЕНДЕР ======
-        function render() {
-            var a = document.getElementById('app');
-            
-            if (currentScreen === 'login') {
-                a.innerHTML = '<h2>Вход в систему</h2><p class="subtitle">Пользователь: любой логин. Админ: admin + пароль.</p><div id="err" class="error hidden"></div><input id="li" placeholder="Логин"><input type="password" id="pi" placeholder="Пароль (только для админа)"><div class="actions"><button class="btn" onclick="doLogin()">Войти</button></div>';
-            }
-            
-            else if (currentScreen === 'user') {
-                var ap = DATA.polls.filter(function(p) { return p.status === 'active'; });
-                var h = '<div class="header"><span>Пользователь: <strong>' + esc(currentUser.login) + '</strong></span><button class="btn btn-gray" onclick="doLogout()">Выйти</button></div><h2>Доступные опросы</h2>';
-                if (ap.length === 0) h += '<p style="text-align:center;color:#999;">Нет активных опросов</p>';
-                else ap.forEach(function(p) {
-                    h += '<div class="card"><strong>' + esc(p.title) + '</strong><p style="color:#666;font-size:13px;">' + esc(p.description||'') + '</p><button class="btn" onclick="doTake(\'' + p.id + '\')">Пройти</button></div>';
+            try {
+                await fetch(FB_URL, {
+                    method: 'PUT',
+                    body: JSON.stringify(DATA)
                 });
-                a.innerHTML = h;
-            }
-            
-            else if (currentScreen === 'take') {
-                var p = DATA.polls.find(function(p) { return p.id === pollId; });
-                if (!p) { a.innerHTML = '<p>Опрос не найден</p>'; return; }
-                var qs = DATA.questions.filter(function(q) { return q.pollId === pollId; });
-                var h = '<div class="header"><button class="btn btn-gray" onclick="goScreen(\'user\')">← Назад</button></div><h2>' + esc(p.title) + '</h2><p style="color:#555;margin-bottom:20px;">' + esc(p.description||'') + '</p><div id="err" class="error hidden"></div><form onsubmit="return false;">';
-                qs.forEach(function(q, i) {
-                    h += '<div class="question-block"><p style="font-weight:600;color:#1a3e72;">' + (i+1) + '. ' + esc(q.questionText) + '</p>';
-                    if (q.questionType === 'text') h += '<textarea id="a_' + q.id + '" placeholder="Ответ"></textarea>';
-                    else {
-                        var opts = DATA.options.filter(function(o) { return o.questionId === q.id; });
-                        var t = q.questionType === 'single' ? 'radio' : 'checkbox';
-                        var n = q.questionType === 'single' ? 'a_' + q.id : 'a_' + q.id + '[]';
-                        opts.forEach(function(o) {
-                            h += '<label class="option-row"><span class="option-letter">' + o.optionLetter + '</span><input type="' + t + '" name="' + n + '" value="' + o.id + '">' + esc(o.optionText) + '</label>';
-                        });
-                    }
-                    h += '</div>';
-                });
-                h += '<div class="actions"><button type="button" class="btn btn-green" onclick="doSubmit()">Отправить ответы</button></div></form>';
-                a.innerHTML = h;
-            }
-            
-            else if (currentScreen === 'admin') {
-                var h = '<div class="header"><span>Админ: <strong>' + esc(currentUser.login) + '</strong></span><button class="btn btn-gray" onclick="doLogout()">Выйти</button></div><h2>Управление опросами</h2><div class="actions"><button class="btn" onclick="goScreen(\'create\')">Создать опрос</button></div>';
-                if (DATA.polls.length === 0) h += '<p style="text-align:center;color:#999;">Нет опросов</p>';
-                else DATA.polls.forEach(function(p) {
-                    var sc = p.status === 'active' ? '#2d7d46' : '#c73e3e';
-                    var st = p.status === 'active' ? 'Активен' : 'Завершён';
-                    var tt = p.status === 'active' ? 'Завершить' : 'Активировать';
-                    h += '<div class="card"><strong>' + esc(p.title) + '</strong> <span style="color:' + sc + ';">(' + st + ')</span><br>';
-                    h += '<button class="btn" onclick="goScreen(\'stat\',\'' + p.id + '\')">Статистика</button> ';
-                    h += '<button class="btn" onclick="goScreen(\'edit\',\'' + p.id + '\')">Редактировать</button> ';
-                    h += '<button class="btn" onclick="doToggle(\'' + p.id + '\')">' + tt + '</button> ';
-                    h += '<button class="btn btn-red" onclick="doDelete(\'' + p.id + '\')">Удалить</button></div>';
-                });
-                a.innerHTML = h;
-            }
-            
-            else if (currentScreen === 'create') {
-                a.innerHTML = '<div class="header"><button class="btn btn-gray" onclick="goScreen(\'admin\')">← Назад</button></div><h2>Создание опроса</h2><input id="pt" placeholder="Название"><textarea id="pd" placeholder="Описание"></textarea><div id="qa"></div><div class="actions"><button class="btn" onclick="doAddQuestion()">Добавить вопрос</button> <button class="btn btn-green" onclick="doSavePoll()">Сохранить</button></div>';
-            }
-            
-            else if (currentScreen === 'edit') {
-                var p = DATA.polls.find(function(p) { return p.id === editId; });
-                if (!p) { a.innerHTML = '<p>Не найден</p>'; return; }
-                var qs = DATA.questions.filter(function(q) { return q.pollId === editId; });
-                var h = '<div class="header"><button class="btn btn-gray" onclick="goScreen(\'admin\')">← Назад</button></div><h2>Редактирование</h2><input id="et" value="' + esc(p.title) + '"><textarea id="ed">' + esc(p.description||'') + '</textarea>';
-                qs.forEach(function(q) {
-                    h += '<div class="question-block"><input value="' + esc(q.questionText) + '" data-qid="' + q.id + '" class="eqt"><select data-qid="' + q.id + '" class="eqty"><option value="single"' + (q.questionType==='single'?' selected':'') + '>Одиночный</option><option value="multiple"' + (q.questionType==='multiple'?' selected':'') + '>Множественный</option><option value="text"' + (q.questionType==='text'?' selected':'') + '>Текст</option></select>';
-                    DATA.options.filter(function(o) { return o.questionId === q.id; }).forEach(function(o) {
-                        h += '<div class="option-row"><span class="option-letter">' + o.optionLetter + '</span><input value="' + esc(o.optionText) + '" data-oid="' + o.id + '" class="eot" style="flex:1;"></div>';
-                    });
-                    h += '<button class="btn btn-red" onclick="doDeleteQuestion(\'' + q.id + '\')" style="margin-top:10px;">Удалить вопрос</button></div>';
-                });
-                h += '<div class="actions"><button class="btn btn-green" onclick="doSaveEdit()">Сохранить</button></div>';
-                a.innerHTML = h;
-            }
-            
-            else if (currentScreen === 'stat') {
-                var p = DATA.polls.find(function(p) { return p.id === statId; });
-                if (!p) { a.innerHTML = '<p>Не найден</p>'; return; }
-                var qs = DATA.questions.filter(function(q) { return q.pollId === statId; });
-                var ans = DATA.answers.filter(function(a) { return a.pollId === statId; });
-                var h = '<div class="header"><button class="btn btn-gray" onclick="goScreen(\'admin\')">← Назад</button><button class="btn btn-green" onclick="doExport()">Экспорт в Excel</button></div><h2>' + esc(p.title) + '</h2><p style="text-align:center;color:#555;">Ответов: <strong>' + ans.length + '</strong></p>';
-                qs.forEach(function(q, i) {
-                    h += '<div class="card"><h3 style="color:#1a3e72;">' + (i+1) + '. ' + esc(q.questionText) + '</h3>';
-                    if (q.questionType === 'text') {
-                        var ta = ans.filter(function(a) { return a.questionId === q.id && a.textAnswer; });
-                        h += ta.length ? '<ul>' + ta.map(function(a) { return '<li>' + esc(a.textAnswer) + '</li>'; }).join('') + '</ul>' : '<p style="color:#999;">Нет ответов</p>';
-                    } else {
-                        var opts = DATA.options.filter(function(o) { return o.questionId === q.id; });
-                        var qa = ans.filter(function(a) { return a.questionId === q.id; });
-                        var total = qa.length, cnt = {};
-                        opts.forEach(function(o) { cnt[o.id] = { l: o.optionLetter, t: o.optionText, c: 0 }; });
-                        qa.forEach(function(a) { if (cnt[a.optionId]) cnt[a.optionId].c++; });
-                        h += '<table class="stat-table"><tr><th>Вар</th><th>Текст</th><th>Кол-во</th><th>%</th></tr>';
-                        Object.values(cnt).forEach(function(v) {
-                            var pct = total > 0 ? Math.round(v.c / total * 100) : 0;
-                            h += '<tr><td><strong>' + v.l + '</strong></td><td>' + esc(v.t) + '</td><td>' + v.c + '</td><td>' + pct + '%</td></tr>';
-                        });
-                        h += '</table><canvas id="ch' + i + '" height="200"></canvas>';
-                        setTimeout(function() {
-                            var ctx = document.getElementById('ch' + i);
-                            if (ctx) new Chart(ctx, { type: 'bar', data: { labels: Object.values(cnt).map(function(v) { return v.l; }), datasets: [{ label: 'Ответы', data: Object.values(cnt).map(function(v) { return v.c; }), backgroundColor: '#1a3e72' }] }, options: { scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } } } });
-                        }, 100);
-                    }
-                    h += '</div>';
-                });
-                a.innerHTML = h;
+            } catch (error) {
+                console.log('Ошибка сохранения:', error);
             }
         }
 
-        // ====== ГЛОБАЛЬНЫЕ ФУНКЦИИ (ВЫЗЫВАЮТСЯ ИЗ HTML) ======
-        
-        function doLogin() {
-            var l = document.getElementById('li').value.trim();
-            var p = document.getElementById('pi').value;
-            var e = document.getElementById('err');
-            if (!l) { e.textContent = 'Введите логин'; e.classList.remove('hidden'); return; }
-            if (l === 'admin') {
-                if (p === 'admin123') { currentUser = { login: l, role: 'admin' }; currentScreen = 'admin'; }
-                else { e.textContent = 'Неверный пароль'; e.classList.remove('hidden'); return; }
-            } else { currentUser = { login: l, role: 'user' }; currentScreen = 'user'; }
-            e.classList.add('hidden'); render();
-        }
-
-        function doLogout() { currentUser = null; currentScreen = 'login'; render(); }
-
-        function goScreen(s, id) {
-            currentScreen = s;
-            if (s === 'stat') statId = id;
-            if (s === 'edit') editId = id;
-            if (s === 'take') pollId = id;
-            if (s === 'user' || s === 'admin') { pollId = null; statId = null; editId = null; }
+        // ==========================================
+        // НАВИГАЦИЯ
+        // ==========================================
+        function goToScreen(screen, param) {
+            currentScreen = screen;
+            if (screen === 'takePoll') selectedPollId = param;
+            if (screen === 'statistics') selectedStatId = param;
+            if (screen === 'editPoll') selectedEditId = param;
             render();
         }
 
-        function doTake(id) { pollId = id; currentScreen = 'take'; render(); }
+        function logoutUser() {
+            currentUser = null;
+            currentScreen = 'login';
+            selectedPollId = null;
+            selectedStatId = null;
+            selectedEditId = null;
+            render();
+        }
 
-        async function doSubmit() {
-            var qs = DATA.questions.filter(function(q) { return q.pollId === pollId; });
-            var err = false;
-            qs.forEach(function(q) {
-                if (q.questionType === 'text') { var el = document.getElementById('a_' + q.id); if (!el || !el.value.trim()) err = true; }
-                else if (q.questionType === 'single') { if (!document.querySelector('[name="a_' + q.id + '"]:checked')) err = true; }
-                else if (q.questionType === 'multiple') { if (document.querySelectorAll('[name="a_' + q.id + '\\[\\]"]:checked').length === 0) err = true; }
+        // ==========================================
+        // ГЛАВНЫЙ РЕНДЕР
+        // ==========================================
+        function render() {
+            var app = document.getElementById('app');
+            
+            if (currentScreen === 'login') {
+                renderLogin(app);
+            } else if (currentScreen === 'userDashboard') {
+                renderUserDashboard(app);
+            } else if (currentScreen === 'takePoll') {
+                renderTakePoll(app);
+            } else if (currentScreen === 'adminDashboard') {
+                renderAdminDashboard(app);
+            } else if (currentScreen === 'createPoll') {
+                renderCreatePoll(app);
+            } else if (currentScreen === 'editPoll') {
+                renderEditPoll(app);
+            } else if (currentScreen === 'statistics') {
+                renderStatistics(app);
+            }
+        }
+
+        // ==========================================
+        // ЭКРАН ВХОДА
+        // ==========================================
+        function renderLogin(app) {
+            var html = '';
+            html += '<h2>Вход в систему</h2>';
+            html += '<p class="subtitle">Пользователь: введите любой логин. Администратор: admin + пароль.</p>';
+            html += '<div id="loginError" class="error hidden"></div>';
+            html += '<input type="text" id="loginInput" placeholder="Логин">';
+            html += '<input type="password" id="passwordInput" placeholder="Пароль (только для администратора)">';
+            html += '<div class="actions">';
+            html += '<button class="btn" onclick="handleLogin()">Войти</button>';
+            html += '</div>';
+            
+            app.innerHTML = html;
+        }
+
+        function handleLogin() {
+            var loginInput = document.getElementById('loginInput');
+            var passwordInput = document.getElementById('passwordInput');
+            var errorDiv = document.getElementById('loginError');
+            
+            var login = loginInput.value.trim();
+            var password = passwordInput.value;
+            
+            if (!login) {
+                errorDiv.textContent = 'Введите логин';
+                errorDiv.classList.remove('hidden');
+                return;
+            }
+            
+            if (login === 'admin') {
+                if (password === 'admin123') {
+                    currentUser = { login: login, role: 'admin' };
+                    currentScreen = 'adminDashboard';
+                } else {
+                    errorDiv.textContent = 'Неверный пароль администратора';
+                    errorDiv.classList.remove('hidden');
+                    return;
+                }
+            } else {
+                currentUser = { login: login, role: 'user' };
+                currentScreen = 'userDashboard';
+            }
+            
+            errorDiv.classList.add('hidden');
+            render();
+        }
+
+        // ==========================================
+        // ДАШБОРД ПОЛЬЗОВАТЕЛЯ
+        // ==========================================
+        function renderUserDashboard(app) {
+            var activePolls = DATA.polls.filter(function(p) {
+                return p.status === 'active';
             });
-            if (err) { document.getElementById('err').textContent = 'Ответьте на все вопросы'; document.getElementById('err').classList.remove('hidden'); return; }
-            qs.forEach(function(q) {
+            
+            var html = '';
+            html += '<div class="header">';
+            html += '<span>Пользователь: <strong>' + escapeHtml(currentUser.login) + '</strong></span>';
+            html += '<button class="btn btn-gray" onclick="logoutUser()">Выйти</button>';
+            html += '</div>';
+            html += '<h2>Доступные опросы</h2>';
+            
+            if (activePolls.length === 0) {
+                html += '<p style="text-align:center;color:#999;">Нет активных опросов</p>';
+            } else {
+                for (var i = 0; i < activePolls.length; i++) {
+                    var poll = activePolls[i];
+                    html += '<div class="card">';
+                    html += '<strong>' + escapeHtml(poll.title) + '</strong>';
+                    html += '<p style="color:#666;font-size:13px;margin-top:5px;">' + escapeHtml(poll.description || '') + '</p>';
+                    html += '<button class="btn" onclick="handleTakePoll(\'' + poll.id + '\')">Пройти</button>';
+                    html += '</div>';
+                }
+            }
+            
+            app.innerHTML = html;
+        }
+
+        function handleTakePoll(pollId) {
+            selectedPollId = pollId;
+            currentScreen = 'takePoll';
+            render();
+        }
+
+        // ==========================================
+        // ПРОХОЖДЕНИЕ ОПРОСА
+        // ==========================================
+        function renderTakePoll(app) {
+            var poll = DATA.polls.find(function(p) { return p.id === selectedPollId; });
+            
+            if (!poll) {
+                app.innerHTML = '<p>Опрос не найден</p>';
+                return;
+            }
+            
+            var questions = DATA.questions.filter(function(q) { return q.pollId === selectedPollId; });
+            
+            var html = '';
+            html += '<div class="header">';
+            html += '<button class="btn btn-gray" onclick="goToScreen(\'userDashboard\')">← Назад</button>';
+            html += '</div>';
+            html += '<h2>' + escapeHtml(poll.title) + '</h2>';
+            html += '<p style="color:#555;margin-bottom:20px;">' + escapeHtml(poll.description || '') + '</p>';
+            html += '<div id="pollError" class="error hidden"></div>';
+            
+            for (var i = 0; i < questions.length; i++) {
+                var q = questions[i];
+                html += '<div class="question-block">';
+                html += '<p style="font-weight:600;color:#1a3e72;margin-bottom:12px;">' + (i + 1) + '. ' + escapeHtml(q.questionText) + '</p>';
+                
                 if (q.questionType === 'text') {
-                    DATA.answers.push({ id: gid(), pollId: pollId, questionId: q.id, userLogin: currentUser.login, optionId: null, textAnswer: document.getElementById('a_' + q.id).value.trim(), submittedAt: new Date().toISOString() });
+                    html += '<textarea id="answer_' + q.id + '" placeholder="Ваш ответ"></textarea>';
+                } else {
+                    var options = DATA.options.filter(function(o) { return o.questionId === q.id; });
+                    var inputType = q.questionType === 'single' ? 'radio' : 'checkbox';
+                    var inputName = q.questionType === 'single' ? 'answer_' + q.id : 'answer_' + q.id + '[]';
+                    
+                    for (var j = 0; j < options.length; j++) {
+                        var opt = options[j];
+                        html += '<label class="option-row">';
+                        html += '<span class="option-letter">' + opt.optionLetter + '</span>';
+                        html += '<input type="' + inputType + '" name="' + inputName + '" value="' + opt.id + '">';
+                        html += escapeHtml(opt.optionText);
+                        html += '</label>';
+                    }
+                }
+                
+                html += '</div>';
+            }
+            
+            html += '<div class="actions">';
+            html += '<button class="btn btn-green" onclick="handleSubmitPoll()">Отправить ответы</button>';
+            html += '</div>';
+            
+            app.innerHTML = html;
+        }
+
+        async function handleSubmitPoll() {
+            var questions = DATA.questions.filter(function(q) { return q.pollId === selectedPollId; });
+            var hasError = false;
+            
+            for (var i = 0; i < questions.length; i++) {
+                var q = questions[i];
+                
+                if (q.questionType === 'text') {
+                    var textInput = document.getElementById('answer_' + q.id);
+                    if (!textInput || !textInput.value.trim()) {
+                        hasError = true;
+                    }
                 } else if (q.questionType === 'single') {
-                    DATA.answers.push({ id: gid(), pollId: pollId, questionId: q.id, userLogin: currentUser.login, optionId: document.querySelector('[name="a_' + q.id + '"]:checked').value, textAnswer: null, submittedAt: new Date().toISOString() });
+                    var radioChecked = document.querySelector('[name="answer_' + q.id + '"]:checked');
+                    if (!radioChecked) {
+                        hasError = true;
+                    }
                 } else if (q.questionType === 'multiple') {
-                    document.querySelectorAll('[name="a_' + q.id + '\\[\\]"]:checked').forEach(function(c) {
-                        DATA.answers.push({ id: gid(), pollId: pollId, questionId: q.id, userLogin: currentUser.login, optionId: c.value, textAnswer: null, submittedAt: new Date().toISOString() });
-                    });
+                    var checkboxes = document.querySelectorAll('[name="answer_' + q.id + '\\[\\]"]:checked');
+                    if (checkboxes.length === 0) {
+                        hasError = true;
+                    }
                 }
-            });
-            await saveData(); alert('Ответы приняты!'); currentScreen = 'user'; render();
+            }
+            
+            if (hasError) {
+                var errorDiv = document.getElementById('pollError');
+                errorDiv.textContent = 'Ответьте на все вопросы';
+                errorDiv.classList.remove('hidden');
+                return;
+            }
+            
+            for (var i = 0; i < questions.length; i++) {
+                var q = questions[i];
+                
+                if (q.questionType === 'text') {
+                    var textValue = document.getElementById('answer_' + q.id).value.trim();
+                    DATA.answers.push({
+                        id: generateId(),
+                        pollId: selectedPollId,
+                        questionId: q.id,
+                        userLogin: currentUser.login,
+                        optionId: null,
+                        textAnswer: textValue,
+                        submittedAt: new Date().toISOString()
+                    });
+                } else if (q.questionType === 'single') {
+                    var checkedRadio = document.querySelector('[name="answer_' + q.id + '"]:checked');
+                    DATA.answers.push({
+                        id: generateId(),
+                        pollId: selectedPollId,
+                        questionId: q.id,
+                        userLogin: currentUser.login,
+                        optionId: checkedRadio.value,
+                        textAnswer: null,
+                        submittedAt: new Date().toISOString()
+                    });
+                } else if (q.questionType === 'multiple') {
+                    var checkedBoxes = document.querySelectorAll('[name="answer_' + q.id + '\\[\\]"]:checked');
+                    for (var j = 0; j < checkedBoxes.length; j++) {
+                        DATA.answers.push({
+                            id: generateId(),
+                            pollId: selectedPollId,
+                            questionId: q.id,
+                            userLogin: currentUser.login,
+                            optionId: checkedBoxes[j].value,
+                            textAnswer: null,
+                            submittedAt: new Date().toISOString()
+                        });
+                    }
+                }
+            }
+            
+            await saveData();
+            alert('Ответы приняты! Спасибо за участие.');
+            goToScreen('userDashboard');
         }
 
-        async function doToggle(id) { var p = DATA.polls.find(function(p) { return p.id === id; }); if (p) { p.status = p.status === 'active' ? 'closed' : 'active'; await saveData(); render(); } }
+        // ==========================================
+        // АДМИНИСТРАТИВНАЯ ПАНЕЛЬ
+        // ==========================================
+        function renderAdminDashboard(app) {
+            var html = '';
+            html += '<div class="header">';
+            html += '<span>Администратор: <strong>' + escapeHtml(currentUser.login) + '</strong></span>';
+            html += '<button class="btn btn-gray" onclick="logoutUser()">Выйти</button>';
+            html += '</div>';
+            html += '<h2>Управление опросами</h2>';
+            html += '<div class="actions">';
+            html += '<button class="btn" onclick="goToScreen(\'createPoll\')">Создать новый опрос</button>';
+            html += '</div>';
+            
+            if (DATA.polls.length === 0) {
+                html += '<p style="text-align:center;color:#999;">Нет созданных опросов</p>';
+            } else {
+                for (var i = 0; i < DATA.polls.length; i++) {
+                    var poll = DATA.polls[i];
+                    var statusColor = poll.status === 'active' ? '#2d7d46' : '#c73e3e';
+                    var statusText = poll.status === 'active' ? 'Активен' : 'Завершён';
+                    var toggleText = poll.status === 'active' ? 'Завершить' : 'Активировать';
+                    
+                    html += '<div class="card">';
+                    html += '<strong>' + escapeHtml(poll.title) + '</strong> ';
+                    html += '<span style="color:' + statusColor + ';font-weight:500;">(' + statusText + ')</span>';
+                    html += '<br>';
+                    html += '<button class="btn" onclick="handleShowStats(\'' + poll.id + '\')">Статистика</button> ';
+                    html += '<button class="btn" onclick="handleEditPoll(\'' + poll.id + '\')">Редактировать</button> ';
+                    html += '<button class="btn" onclick="handleTogglePoll(\'' + poll.id + '\')">' + toggleText + '</button> ';
+                    html += '<button class="btn btn-red" onclick="handleDeletePoll(\'' + poll.id + '\')">Удалить</button>';
+                    html += '</div>';
+                }
+            }
+            
+            app.innerHTML = html;
+        }
 
-        async function doDelete(id) {
-            if (confirm('Удалить?')) {
-                var qids = DATA.questions.filter(function(q) { return q.pollId === id; }).map(function(q) { return q.id; });
-                DATA.polls = DATA.polls.filter(function(p) { return p.id !== id; });
-                DATA.questions = DATA.questions.filter(function(q) { return q.pollId !== id; });
-                DATA.options = DATA.options.filter(function(o) { return !qids.includes(o.questionId); });
-                DATA.answers = DATA.answers.filter(function(a) { return a.pollId !== id; });
-                await saveData(); render();
+        function handleShowStats(pollId) {
+            selectedStatId = pollId;
+            currentScreen = 'statistics';
+            render();
+        }
+
+        function handleEditPoll(pollId) {
+            selectedEditId = pollId;
+            currentScreen = 'editPoll';
+            render();
+        }
+
+        async function handleTogglePoll(pollId) {
+            var poll = DATA.polls.find(function(p) { return p.id === pollId; });
+            if (poll) {
+                poll.status = poll.status === 'active' ? 'closed' : 'active';
+                await saveData();
+                render();
             }
         }
 
-        function doAddQuestion() {
-            var c = Date.now();
-            var d = document.createElement('div'); d.className = 'question-block'; d.id = 'qb' + c;
-            d.innerHTML = '<input id="qt' + c + '" placeholder="Текст вопроса"><select id="qy' + c + '" onchange="document.getElementById(\'oa' + c + '\').style.display = this.value === \'text\' ? \'none\' : \'block\'"><option value="single">Одиночный</option><option value="multiple">Множественный</option><option value="text">Текст</option></select><div id="oa' + c + '" style="margin-top:10px;"><button class="btn" onclick="doAddOption(\'' + c + '\')">Добавить вариант</button></div><button class="btn btn-red" onclick="this.parentElement.remove()" style="margin-top:10px;">Удалить</button>';
-            document.getElementById('qa').appendChild(d);
-        }
-
-        function doAddOption(c) {
-            var area = document.getElementById('oa' + c);
-            var inputs = area.querySelectorAll('input[id^="ot"]');
-            var i = inputs.length;
-            var l = String.fromCharCode(65 + i);
-            var d = document.createElement('div'); d.className = 'option-row';
-            d.innerHTML = '<span class="option-letter">' + l + '</span><input id="ot' + c + '_' + i + '" placeholder="Вариант" style="flex:1;"><button class="btn btn-red" onclick="this.parentElement.remove()" style="padding:5px 10px;">×</button>';
-            area.insertBefore(d, area.lastElementChild);
-        }
-
-        async function doSavePoll() {
-            var t = document.getElementById('pt').value.trim();
-            if (!t) { alert('Введите название'); return; }
-            var id = gid();
-            DATA.polls.push({ id: id, title: t, description: document.getElementById('pd').value.trim(), status: 'active', createdAt: new Date().toISOString() });
-            document.querySelectorAll('[id^="qb"]').forEach(function(b) {
-                var c = b.id.replace('qb', '');
-                var qt = document.getElementById('qt' + c)?.value.trim();
-                var qy = document.getElementById('qy' + c)?.value;
-                if (!qt) return;
-                var qid = gid();
-                DATA.questions.push({ id: qid, pollId: id, questionText: qt, questionType: qy });
-                if (qy !== 'text') {
-                    b.querySelectorAll('input[id^="ot"]').forEach(function(inp, i) {
-                        var ot = inp.value.trim();
-                        if (ot) DATA.options.push({ id: gid(), questionId: qid, optionText: ot, optionLetter: String.fromCharCode(65 + i) });
-                    });
-                }
-            });
-            await saveData(); alert('Создано!'); currentScreen = 'admin'; render();
-        }
-
-        async function doDeleteQuestion(qid) {
-            if (confirm('Удалить?')) {
-                DATA.questions = DATA.questions.filter(function(q) { return q.id !== qid; });
-                DATA.options = DATA.options.filter(function(o) { return o.questionId !== qid; });
-                DATA.answers = DATA.answers.filter(function(a) { return a.questionId !== qid; });
-                await saveData(); render();
+        async function handleDeletePoll(pollId) {
+            if (confirm('Вы уверены, что хотите удалить этот опрос и все связанные данные?')) {
+                var questionIds = DATA.questions.filter(function(q) { return q.pollId === pollId; }).map(function(q) { return q.id; });
+                
+                DATA.polls = DATA.polls.filter(function(p) { return p.id !== pollId; });
+                DATA.questions = DATA.questions.filter(function(q) { return q.pollId !== pollId; });
+                DATA.options = DATA.options.filter(function(o) { return questionIds.indexOf(o.questionId) === -1; });
+                DATA.answers = DATA.answers.filter(function(a) { return a.pollId !== pollId; });
+                
+                await saveData();
+                render();
             }
         }
 
-        async function doSaveEdit() {
-            var p = DATA.polls.find(function(p) { return p.id === editId; });
-            if (p) { p.title = document.getElementById('et').value.trim(); p.description = document.getElementById('ed').value.trim(); }
-            document.querySelectorAll('.eqt').forEach(function(i) { var q = DATA.questions.find(function(q) { return q.id === i.dataset.qid; }); if (q) q.questionText = i.value.trim(); });
-            document.querySelectorAll('.eqty').forEach(function(s) { var q = DATA.questions.find(function(q) { return q.id === s.dataset.qid; }); if (q) q.questionType = s.value; });
-            document.querySelectorAll('.eot').forEach(function(i) { var o = DATA.options.find(function(o) { return o.id === i.dataset.oid; }); if (o) o.optionText = i.value.trim(); });
-            await saveData(); alert('Сохранено!'); currentScreen = 'admin'; render();
+        // ==========================================
+        // СОЗДАНИЕ ОПРОСА
+        // ==========================================
+        function renderCreatePoll(app) {
+            questionCounter = 0;
+            optionCounters = {};
+            
+            var html = '';
+            html += '<div class="header">';
+            html += '<button class="btn btn-gray" onclick="goToScreen(\'adminDashboard\')">← Назад</button>';
+            html += '</div>';
+            html += '<h2>Создание нового опроса</h2>';
+            html += '<input type="text" id="pollTitle" placeholder="Название опроса">';
+            html += '<textarea id="pollDescription" placeholder="Описание опроса"></textarea>';
+            html += '<div id="questionsContainer"></div>';
+            html += '<div class="actions">';
+            html += '<button class="btn" onclick="handleAddQuestion()">Добавить вопрос</button> ';
+            html += '<button class="btn btn-green" onclick="handleSavePoll()">Сохранить опрос</button>';
+            html += '</div>';
+            
+            app.innerHTML = html;
         }
 
-        function doExport() {
-            var p = DATA.polls.find(function(p) { return p.id === statId; });
-            var qs = DATA.questions.filter(function(q) { return q.pollId === statId; });
-            var ans = DATA.answers.filter(function(a) { return a.pollId === statId; });
-            var csv = '\uFEFF' + p.title + '\n';
-            qs.forEach(function(q) {
+        function handleAddQuestion() {
+            questionCounter++;
+            var counter = questionCounter;
+            var container = document.getElementById('questionsContainer');
+            
+            var questionBlock = document.createElement('div');
+            questionBlock.className = 'question-block';
+            questionBlock.id = 'questionBlock' + counter;
+            
+            var blockHtml = '';
+            blockHtml += '<input type="text" id="questionText' + counter + '" placeholder="Текст вопроса">';
+            blockHtml += '<select id="questionType' + counter + '" onchange="handleQuestionTypeChange(' + counter + ')">';
+            blockHtml += '<option value="single">Одиночный выбор</option>';
+            blockHtml += '<option value="multiple">Множественный выбор</option>';
+            blockHtml += '<option value="text">Текстовый ответ</option>';
+            blockHtml += '</select>';
+            blockHtml += '<div id="optionsContainer' + counter + '" style="margin-top:10px;"></div>';
+            blockHtml += '<button class="btn" onclick="handleAddOption(' + counter + ')" id="addOptionBtn' + counter + '">Добавить вариант ответа</button>';
+            blockHtml += '<button class="btn btn-red" onclick="handleRemoveQuestion(' + counter + ')" style="margin-top:10px;">Удалить вопрос</button>';
+            
+            questionBlock.innerHTML = blockHtml;
+            container.appendChild(questionBlock);
+            
+            // Инициализируем счетчик опций для этого вопроса
+            optionCounters[counter] = 0;
+            
+            // Добавляем первые два варианта по умолчанию
+            handleAddOption(counter);
+            handleAddOption(counter);
+        }
+
+        function handleQuestionTypeChange(counter) {
+            var typeSelect = document.getElementById('questionType' + counter);
+            var optionsContainer = document.getElementById('optionsContainer' + counter);
+            var addOptionBtn = document.getElementById('addOptionBtn' + counter);
+            
+            if (typeSelect.value === 'text') {
+                optionsContainer.style.display = 'none';
+                addOptionBtn.style.display = 'none';
+            } else {
+                optionsContainer.style.display = 'block';
+                addOptionBtn.style.display = 'inline-block';
+            }
+        }
+
+        function handleAddOption(counter) {
+            var optionsContainer = document.getElementById('optionsContainer' + counter);
+            var optionIndex = optionCounters[counter];
+            optionCounters[counter]++;
+            
+            var letter = String.fromCharCode(65 + optionIndex);
+            
+            var optionRow = document.createElement('div');
+            optionRow.className = 'option-row';
+            optionRow.id = 'optionRow' + counter + '_' + optionIndex;
+            
+            var rowHtml = '';
+            rowHtml += '<span class="option-letter">' + letter + '</span>';
+            rowHtml += '<input type="text" id="optionText' + counter + '_' + optionIndex + '" placeholder="Вариант ответа ' + letter + '" style="flex:1;">';
+            rowHtml += '<button class="btn btn-red" onclick="handleRemoveOption(\'' + counter + '_' + optionIndex + '\')" style="padding:5px 10px;">×</button>';
+            
+            optionRow.innerHTML = rowHtml;
+            optionsContainer.appendChild(optionRow);
+        }
+
+        function handleRemoveOption(optionId) {
+            var parts = optionId.split('_');
+            var counter = parts[0];
+            var optionRow = document.getElementById('optionRow' + counter + '_' + parts[1]);
+            if (optionRow) {
+                optionRow.remove();
+            }
+        }
+
+        function handleRemoveQuestion(counter) {
+            var questionBlock = document.getElementById('questionBlock' + counter);
+            if (questionBlock) {
+                questionBlock.remove();
+            }
+        }
+
+        async function handleSavePoll() {
+            var titleInput = document.getElementById('pollTitle');
+            var descriptionInput = document.getElementById('pollDescription');
+            
+            var title = titleInput.value.trim();
+            if (!title) {
+                alert('Пожалуйста, введите название опроса');
+                return;
+            }
+            
+            var pollId = generateId();
+            
+            DATA.polls.push({
+                id: pollId,
+                title: title,
+                description: descriptionInput.value.trim(),
+                status: 'active',
+                createdAt: new Date().toISOString()
+            });
+            
+            var questionBlocks = document.querySelectorAll('[id^="questionBlock"]');
+            
+            for (var i = 0; i < questionBlocks.length; i++) {
+                var block = questionBlocks[i];
+                var counter = block.id.replace('questionBlock', '');
+                
+                var questionText = document.getElementById('questionText' + counter);
+                var questionType = document.getElementById('questionType' + counter);
+                
+                if (!questionText || !questionText.value.trim()) {
+                    continue;
+                }
+                
+                var questionId = generateId();
+                
+                DATA.questions.push({
+                    id: questionId,
+                    pollId: pollId,
+                    questionText: questionText.value.trim(),
+                    questionType: questionType.value
+                });
+                
+                if (questionType.value !== 'text') {
+                    var optionInputs = block.querySelectorAll('[id^="optionText' + counter + '_"]');
+                    
+                    for (var j = 0; j < optionInputs.length; j++) {
+                        var optionText = optionInputs[j].value.trim();
+                        
+                        if (optionText) {
+                            DATA.options.push({
+                                id: generateId(),
+                                questionId: questionId,
+                                optionText: optionText,
+                                optionLetter: String.fromCharCode(65 + j)
+                            });
+                        }
+                    }
+                }
+            }
+            
+            await saveData();
+            alert('Опрос успешно создан!');
+            goToScreen('adminDashboard');
+        }
+
+        // ==========================================
+        // РЕДАКТИРОВАНИЕ ОПРОСА
+        // ==========================================
+        function renderEditPoll(app) {
+            var poll = DATA.polls.find(function(p) { return p.id === selectedEditId; });
+            
+            if (!poll) {
+                app.innerHTML = '<p>Опрос не найден</p>';
+                return;
+            }
+            
+            var questions = DATA.questions.filter(function(q) { return q.pollId === selectedEditId; });
+            
+            var html = '';
+            html += '<div class="header">';
+            html += '<button class="btn btn-gray" onclick="goToScreen(\'adminDashboard\')">← Назад</button>';
+            html += '</div>';
+            html += '<h2>Редактирование опроса</h2>';
+            html += '<input type="text" id="editTitle" value="' + escapeHtml(poll.title) + '">';
+            html += '<textarea id="editDescription">' + escapeHtml(poll.description || '') + '</textarea>';
+            html += '<div id="editQuestionsArea">';
+            
+            for (var i = 0; i < questions.length; i++) {
+                var q = questions[i];
+                var options = DATA.options.filter(function(o) { return o.questionId === q.id; });
+                
+                html += '<div class="question-block">';
+                html += '<input type="text" value="' + escapeHtml(q.questionText) + '" data-question-id="' + q.id + '" class="edit-question-text" style="margin-bottom:8px;">';
+                html += '<select data-question-id="' + q.id + '" class="edit-question-type">';
+                html += '<option value="single"' + (q.questionType === 'single' ? ' selected' : '') + '>Одиночный выбор</option>';
+                html += '<option value="multiple"' + (q.questionType === 'multiple' ? ' selected' : '') + '>Множественный выбор</option>';
+                html += '<option value="text"' + (q.questionType === 'text' ? ' selected' : '') + '>Текстовый ответ</option>';
+                html += '</select>';
+                
+                for (var j = 0; j < options.length; j++) {
+                    var opt = options[j];
+                    html += '<div class="option-row">';
+                    html += '<span class="option-letter">' + opt.optionLetter + '</span>';
+                    html += '<input type="text" value="' + escapeHtml(opt.optionText) + '" data-option-id="' + opt.id + '" class="edit-option-text" style="flex:1;">';
+                    html += '</div>';
+                }
+                
+                html += '<button class="btn btn-red" onclick="handleDeleteQuestion(\'' + q.id + '\')" style="margin-top:10px;">Удалить вопрос</button>';
+                html += '</div>';
+            }
+            
+            html += '</div>';
+            html += '<div class="actions">';
+            html += '<button class="btn btn-green" onclick="handleSaveEdit()">Сохранить изменения</button>';
+            html += '</div>';
+            
+            app.innerHTML = html;
+        }
+
+        async function handleDeleteQuestion(questionId) {
+            if (confirm('Вы уверены, что хотите удалить этот вопрос и все ответы на него?')) {
+                DATA.questions = DATA.questions.filter(function(q) { return q.id !== questionId; });
+                DATA.options = DATA.options.filter(function(o) { return o.questionId !== questionId; });
+                DATA.answers = DATA.answers.filter(function(a) { return a.questionId !== questionId; });
+                
+                await saveData();
+                render();
+            }
+        }
+
+        async function handleSaveEdit() {
+            var poll = DATA.polls.find(function(p) { return p.id === selectedEditId; });
+            
+            if (poll) {
+                poll.title = document.getElementById('editTitle').value.trim();
+                poll.description = document.getElementById('editDescription').value.trim();
+            }
+            
+            var questionTextInputs = document.querySelectorAll('.edit-question-text');
+            for (var i = 0; i < questionTextInputs.length; i++) {
+                var input = questionTextInputs[i];
+                var question = DATA.questions.find(function(q) { return q.id === input.dataset.questionId; });
+                if (question) {
+                    question.questionText = input.value.trim();
+                }
+            }
+            
+            var questionTypeSelects = document.querySelectorAll('.edit-question-type');
+            for (var i = 0; i < questionTypeSelects.length; i++) {
+                var select = questionTypeSelects[i];
+                var question = DATA.questions.find(function(q) { return q.id === select.dataset.questionId; });
+                if (question) {
+                    question.questionType = select.value;
+                }
+            }
+            
+            var optionTextInputs = document.querySelectorAll('.edit-option-text');
+            for (var i = 0; i < optionTextInputs.length; i++) {
+                var input = optionTextInputs[i];
+                var option = DATA.options.find(function(o) { return o.id === input.dataset.optionId; });
+                if (option) {
+                    option.optionText = input.value.trim();
+                }
+            }
+            
+            await saveData();
+            alert('Изменения сохранены!');
+            goToScreen('adminDashboard');
+        }
+
+        // ==========================================
+        // СТАТИСТИКА
+        // ==========================================
+        function renderStatistics(app) {
+            var poll = DATA.polls.find(function(p) { return p.id === selectedStatId; });
+            
+            if (!poll) {
+                app.innerHTML = '<p>Опрос не найден</p>';
+                return;
+            }
+            
+            var questions = DATA.questions.filter(function(q) { return q.pollId === selectedStatId; });
+            var answers = DATA.answers.filter(function(a) { return a.pollId === selectedStatId; });
+            
+            var html = '';
+            html += '<div class="header">';
+            html += '<button class="btn btn-gray" onclick="goToScreen(\'adminDashboard\')">← Назад</button>';
+            html += '<button class="btn btn-green" onclick="handleExportCSV()">Экспорт в Excel</button>';
+            html += '</div>';
+            html += '<h2>' + escapeHtml(poll.title) + '</h2>';
+            html += '<p style="text-align:center;color:#555;margin-bottom:20px;">Всего ответов: <strong>' + answers.length + '</strong></p>';
+            
+            for (var i = 0; i < questions.length; i++) {
+                var q = questions[i];
+                
+                html += '<div class="card">';
+                html += '<h3 style="color:#1a3e72;margin-bottom:10px;">' + (i + 1) + '. ' + escapeHtml(q.questionText) + '</h3>';
+                
+                if (q.questionType === 'text') {
+                    var textAnswers = answers.filter(function(a) { return a.questionId === q.id && a.textAnswer; });
+                    
+                    if (textAnswers.length === 0) {
+                        html += '<p style="color:#999;">Нет ответов</p>';
+                    } else {
+                        html += '<ul style="padding-left:20px;">';
+                        for (var j = 0; j < textAnswers.length; j++) {
+                            html += '<li style="margin:5px 0;">' + escapeHtml(textAnswers[j].textAnswer) + '</li>';
+                        }
+                        html += '</ul>';
+                    }
+                } else {
+                    var options = DATA.options.filter(function(o) { return o.questionId === q.id; });
+                    var questionAnswers = answers.filter(function(a) { return a.questionId === q.id; });
+                    var total = questionAnswers.length;
+                    
+                    var counts = {};
+                    for (var j = 0; j < options.length; j++) {
+                        counts[options[j].id] = {
+                            letter: options[j].optionLetter,
+                            text: options[j].optionText,
+                            count: 0
+                        };
+                    }
+                    
+                    for (var j = 0; j < questionAnswers.length; j++) {
+                        if (counts[questionAnswers[j].optionId]) {
+                            counts[questionAnswers[j].optionId].count++;
+                        }
+                    }
+                    
+                    html += '<table class="stat-table">';
+                    html += '<tr><th>Вариант</th><th>Текст</th><th>Количество</th><th>Процент</th></tr>';
+                    
+                    var countValues = Object.values(counts);
+                    for (var j = 0; j < countValues.length; j++) {
+                        var v = countValues[j];
+                        var percent = total > 0 ? Math.round(v.count / total * 100) : 0;
+                        html += '<tr>';
+                        html += '<td><strong>' + v.letter + '</strong></td>';
+                        html += '<td>' + escapeHtml(v.text) + '</td>';
+                        html += '<td>' + v.count + '</td>';
+                        html += '<td>' + percent + '%</td>';
+                        html += '</tr>';
+                    }
+                    
+                    html += '</table>';
+                    html += '<canvas id="chart' + i + '" height="200"></canvas>';
+                    
+                    setTimeout(function(index, cntVals) {
+                        var ctx = document.getElementById('chart' + index);
+                        if (ctx) {
+                            new Chart(ctx, {
+                                type: 'bar',
+                                data: {
+                                    labels: cntVals.map(function(v) { return v.letter; }),
+                                    datasets: [{
+                                        label: 'Количество ответов',
+                                        data: cntVals.map(function(v) { return v.count; }),
+                                        backgroundColor: '#1a3e72'
+                                    }]
+                                },
+                                options: {
+                                    scales: {
+                                        y: {
+                                            beginAtZero: true,
+                                            ticks: { stepSize: 1 }
+                                        }
+                                    }
+                                }
+                            });
+                        }
+                    }, 100, i, countValues);
+                }
+                
+                html += '</div>';
+            }
+            
+            app.innerHTML = html;
+        }
+
+        function handleExportCSV() {
+            var poll = DATA.polls.find(function(p) { return p.id === selectedStatId; });
+            var questions = DATA.questions.filter(function(q) { return q.pollId === selectedStatId; });
+            var answers = DATA.answers.filter(function(a) { return a.pollId === selectedStatId; });
+            
+            var csv = '\uFEFF' + poll.title + '\n';
+            
+            for (var i = 0; i < questions.length; i++) {
+                var q = questions[i];
+                
                 csv += '\n' + q.questionText + '\n';
+                
                 if (q.questionType === 'text') {
                     csv += 'Ответ\n';
-                    ans.filter(function(a) { return a.questionId === q.id && a.textAnswer; }).forEach(function(a) { csv += a.textAnswer + '\n'; });
+                    var textAnswers = answers.filter(function(a) { return a.questionId === q.id && a.textAnswer; });
+                    for (var j = 0; j < textAnswers.length; j++) {
+                        csv += textAnswers[j].textAnswer + '\n';
+                    }
                 } else {
                     csv += 'Вариант;Текст;Количество;Процент\n';
-                    var opts = DATA.options.filter(function(o) { return o.questionId === q.id; });
-                    var qa = ans.filter(function(a) { return a.questionId === q.id; });
-                    var total = qa.length;
-                    opts.forEach(function(o) {
-                        var c = qa.filter(function(a) { return a.optionId === o.id; }).length;
-                        csv += o.optionLetter + ';' + o.optionText + ';' + c + ';' + (total > 0 ? Math.round(c / total * 100) : 0) + '%\n';
-                    });
+                    var options = DATA.options.filter(function(o) { return o.questionId === q.id; });
+                    var questionAnswers = answers.filter(function(a) { return a.questionId === q.id; });
+                    var total = questionAnswers.length;
+                    
+                    for (var j = 0; j < options.length; j++) {
+                        var count = questionAnswers.filter(function(a) { return a.optionId === options[j].id; }).length;
+                        var percent = total > 0 ? Math.round(count / total * 100) : 0;
+                        csv += options[j].optionLetter + ';' + options[j].optionText + ';' + count + ';' + percent + '%\n';
+                    }
                 }
-            });
+            }
+            
             var blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
             var url = URL.createObjectURL(blob);
-            var a = document.createElement('a'); a.href = url; a.download = 'опрос_' + statId + '.csv'; a.click(); URL.revokeObjectURL(url);
+            var link = document.createElement('a');
+            link.href = url;
+            link.download = 'опрос_' + selectedStatId + '_' + new Date().toISOString().slice(0, 10) + '.csv';
+            link.click();
+            URL.revokeObjectURL(url);
         }
 
-        // ====== ЗАПУСК ======
-        (async function() { await loadData(); render(); })();
+        // ==========================================
+        // ЗАПУСК ПРИЛОЖЕНИЯ
+        // ==========================================
+        (async function() {
+            await loadData();
+            render();
+        })();
     </script>
 </body>
 </html>
