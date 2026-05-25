@@ -1,16 +1,3 @@
-Вот исправленный и оптимизированный код.
-
-**Что было исправлено для стабильной работы:**
-1.  **Исправлена критическая ошибка в статистике:** В оригинальном коде использовалась переменная `i` внутри асинхронной функции отрисовки графиков (`setTimeout`). Из-за замыкания все графики пытались рисоваться на одном и том же (последнем) элементе или выдавали ошибку. Я заменил это на корректную передачу ID через атрибуты данных.
-2.  **Улучшена работа с Firebase:** Добавлена проверка на существование базы данных при первом запуске (если база пустая, она инициализируется корректными пустыми массивами, чтобы приложение не падало с ошибкой `undefined`).
-3.  **Безопасность DOM:** Улучшена очистка HTML при удалении элементов, чтобы избежать ошибок при быстром клике.
-4.  **Совместимость:** Код оставлен на ES5/ES6 (var/function), чтобы гарантированно работать во всех браузерах без необходимости сборки, как и требовалось.
-
-Интерфейс остался **абсолютно идентичным**.
-
-Сохраните этот код как `index.html`:
-
-```html
 <!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -264,37 +251,62 @@
         // ПРОХОЖДЕНИЕ ОПРОСА
         // ==========================================
         function renderTakePoll(app) {
-    var poll = DATA.polls.find(function(p) { return p.id === selectedPollId; });
-    
-    if (!poll) {
-        app.innerHTML = '<p>Опрос не найден</p><button class="btn" onclick="goToScreen(\'userDashboard\')">Назад</button>';
-        return;
-    }
-    
-    var questions = DATA.questions.filter(function(q) { return q.pollId === selectedPollId; });
-    
-    var html = '';
-    html += '<div class="header">';
-    html += '<button class="btn btn-gray" onclick="goToScreen(\'userDashboard\')">← Назад</button>';
-    html += '</div>';
-    html += '<h2>' + escapeHtml(poll.title) + '</h2>';
-    html += '<p style="color:#555;margin-bottom:20px;">' + escapeHtml(poll.description || '') + '</p>';
-    
-    // ДОБАВИТЬ ЭТУ СТРОКУ:
-    html += '<div id="pollError" class="error hidden"></div>';
-    
-    if (questions.length === 0) {
-        html += '<p>В этом опросе пока нет вопросов.</p>';
-    } else {
-        // ... остальной код вопросов ...
-    }
-    
-    html += '<div class="actions">';
-    html += '<button class="btn btn-green" onclick="handleSubmitPoll()">Отправить ответы</button>';
-    html += '</div>';
-    
-    app.innerHTML = html;
-}
+            var poll = DATA.polls.find(function(p) { return p.id === selectedPollId; });
+            
+            if (!poll) {
+                app.innerHTML = '<p>Опрос не найден</p><button class="btn" onclick="goToScreen(\'userDashboard\')">Назад</button>';
+                return;
+            }
+            
+            var questions = DATA.questions.filter(function(q) { return q.pollId === selectedPollId; });
+            
+            var html = '';
+            html += '<div class="header">';
+            html += '<button class="btn btn-gray" onclick="goToScreen(\'userDashboard\')">← Назад</button>';
+            html += '</div>';
+            html += '<h2>' + escapeHtml(poll.title) + '</h2>';
+            html += '<p style="color:#555;margin-bottom:20px;">' + escapeHtml(poll.description || '') + '</p>';
+            html += '<div id="pollError" class="error hidden"></div>';
+            
+            if (questions.length === 0) {
+                html += '<p>В этом опросе пока нет вопросов.</p>';
+            } else {
+                for (var i = 0; i < questions.length; i++) {
+                    var q = questions[i];
+                    html += '<div class="question-block">';
+                    html += '<p style="font-weight:600;color:#1a3e72;margin-bottom:12px;">' + (i + 1) + '. ' + escapeHtml(q.questionText) + '</p>';
+                    
+                    if (q.questionType === 'text') {
+                        html += '<textarea id="answer_' + q.id + '" placeholder="Ваш ответ"></textarea>';
+                    } else {
+                        var options = DATA.options.filter(function(o) { return o.questionId === q.id; });
+                        var inputType = q.questionType === 'single' ? 'radio' : 'checkbox';
+                        var inputName = q.questionType === 'single' ? 'answer_' + q.id : 'answer_' + q.id + '[]';
+                        
+                        if (options.length === 0) {
+                            html += '<p style="color:#999; font-style:italic;">Нет вариантов ответа</p>';
+                        } else {
+                            for (var j = 0; j < options.length; j++) {
+                                var opt = options[j];
+                                html += '<label class="option-row">';
+                                html += '<span class="option-letter">' + opt.optionLetter + '</span>';
+                                html += '<input type="' + inputType + '" name="' + inputName + '" value="' + opt.id + '">';
+                                html += escapeHtml(opt.optionText);
+                                html += '</label>';
+                            }
+                        }
+                    }
+                    
+                    html += '</div>';
+                }
+                
+                html += '<div class="actions">';
+                html += '<button class="btn btn-green" onclick="handleSubmitPoll()">Отправить ответы</button>';
+                html += '</div>';
+            }
+            
+            app.innerHTML = html;
+        }
 
         async function handleSubmitPoll() {
             var questions = DATA.questions.filter(function(q) { return q.pollId === selectedPollId; });
@@ -920,4 +932,3 @@
     </script>
 </body>
 </html>
-```
