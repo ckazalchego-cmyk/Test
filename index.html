@@ -82,14 +82,12 @@
                 if (!response.ok) throw new Error('Network response was not ok');
                 var data = await response.json();
                 
-                // Инициализация структуры, если база пуста или имеет другую структуру
                 if (data && typeof data === 'object') {
                     DATA.polls = data.polls || [];
                     DATA.questions = data.questions || [];
                     DATA.options = data.options || [];
                     DATA.answers = data.answers || [];
                 } else {
-                    // Если база совсем пустая (null), инициализируем пустыми массивами
                     DATA = { polls: [], questions: [], options: [], answers: [] };
                     await saveData(); 
                 }
@@ -112,9 +110,6 @@
             }
         }
 
-        // ==========================================
-        // НАВИГАЦИЯ
-        // ==========================================
         function goToScreen(screen, param) {
             currentScreen = screen;
             if (screen === 'takePoll') selectedPollId = param;
@@ -132,12 +127,9 @@
             render();
         }
 
-        // ==========================================
-        // ГЛАВНЫЙ РЕНДЕР
-        // ==========================================
         function render() {
             var app = document.getElementById('app');
-            app.innerHTML = ''; // Очистка перед рендером
+            app.innerHTML = '';
             
             if (currentScreen === 'login') {
                 renderLogin(app);
@@ -156,9 +148,6 @@
             }
         }
 
-        // ==========================================
-        // ЭКРАН ВХОДА
-        // ==========================================
         function renderLogin(app) {
             var html = '';
             html += '<h2>Вход в систему</h2>';
@@ -172,7 +161,6 @@
             
             app.innerHTML = html;
             
-            // Обработка Enter
             document.getElementById('passwordInput').addEventListener('keypress', function (e) {
                 if (e.key === 'Enter') handleLogin();
             });
@@ -210,9 +198,6 @@
             render();
         }
 
-        // ==========================================
-        // ДАШБОРД ПОЛЬЗОВАТЕЛЯ
-        // ==========================================
         function renderUserDashboard(app) {
             var activePolls = DATA.polls.filter(function(p) {
                 return p.status === 'active';
@@ -247,9 +232,6 @@
             render();
         }
 
-        // ==========================================
-        // ПРОХОЖДЕНИЕ ОПРОСА
-        // ==========================================
         function renderTakePoll(app) {
             var poll = DATA.polls.find(function(p) { return p.id === selectedPollId; });
             
@@ -312,7 +294,6 @@
             var questions = DATA.questions.filter(function(q) { return q.pollId === selectedPollId; });
             var hasError = false;
             
-            // Проверка заполненности
             for (var i = 0; i < questions.length; i++) {
                 var q = questions[i];
                 
@@ -342,7 +323,6 @@
                 return;
             }
             
-            // Сбор ответов
             for (var i = 0; i < questions.length; i++) {
                 var q = questions[i];
                 
@@ -391,9 +371,6 @@
             goToScreen('userDashboard');
         }
 
-        // ==========================================
-        // АДМИНИСТРАТИВНАЯ ПАНЕЛЬ
-        // ==========================================
         function renderAdminDashboard(app) {
             var html = '';
             html += '<div class="header">';
@@ -408,7 +385,6 @@
             if (DATA.polls.length === 0) {
                 html += '<p style="text-align:center;color:#999;">Нет созданных опросов</p>';
             } else {
-                // Сортировка: новые сверху
                 var sortedPolls = DATA.polls.slice().sort(function(a, b) {
                     return new Date(b.createdAt) - new Date(a.createdAt);
                 });
@@ -469,9 +445,6 @@
             }
         }
 
-        // ==========================================
-        // СОЗДАНИЕ ОПРОСА
-        // ==========================================
         function renderCreatePoll(app) {
             questionCounter = 0;
             optionCounters = {};
@@ -515,10 +488,8 @@
             questionBlock.innerHTML = blockHtml;
             container.appendChild(questionBlock);
             
-            // Инициализируем счетчик опций для этого вопроса
             optionCounters[counter] = 0;
             
-            // Добавляем первые два варианта по умолчанию
             handleAddOption(counter);
             handleAddOption(counter);
         }
@@ -595,7 +566,6 @@
             
             for (var i = 0; i < questionBlocks.length; i++) {
                 var block = questionBlocks[i];
-                // Извлекаем counter из ID блока (questionBlock123 -> 123)
                 var blockId = block.id;
                 var counter = blockId.replace('questionBlock', '');
                 
@@ -603,7 +573,7 @@
                 var questionTypeInput = document.getElementById('questionType' + counter);
                 
                 if (!questionTextInput || !questionTextInput.value.trim()) {
-                    continue; // Пропускаем пустые вопросы
+                    continue;
                 }
                 
                 var questionId = generateId();
@@ -616,7 +586,6 @@
                 });
                 
                 if (questionTypeInput.value !== 'text') {
-                    // Ищем все инпуты вариантов внутри этого блока
                     var optionInputs = block.querySelectorAll('[id^="optionText' + counter + '_"]');
                     
                     for (var j = 0; j < optionInputs.length; j++) {
@@ -640,9 +609,6 @@
             goToScreen('adminDashboard');
         }
 
-        // ==========================================
-        // РЕДАКТИРОВАНИЕ ОПРОСА
-        // ==========================================
         function renderEditPoll(app) {
             var poll = DATA.polls.find(function(p) { return p.id === selectedEditId; });
             
@@ -745,9 +711,6 @@
             goToScreen('adminDashboard');
         }
 
-        // ==========================================
-        // СТАТИСТИКА
-        // ==========================================
         function renderStatistics(app) {
             var poll = DATA.polls.find(function(p) { return p.id === selectedStatId; });
             
@@ -821,7 +784,6 @@
                     }
                     
                     html += '</table>';
-                    // Используем data-index для безопасной привязки графика
                     html += '<canvas id="chart' + i + '" data-index="' + i + '" height="200"></canvas>';
                 }
                 
@@ -830,8 +792,6 @@
             
             app.innerHTML = html;
 
-            // Отрисовка графиков после вставки HTML
-            // Используем requestAnimationFrame чтобы убедиться, что DOM обновлен
             requestAnimationFrame(function() {
                 var canvases = document.querySelectorAll('canvas[data-index]');
                 canvases.forEach(function(canvas) {
@@ -922,9 +882,6 @@
             URL.revokeObjectURL(url);
         }
 
-        // ==========================================
-        // ЗАПУСК ПРИЛОЖЕНИЯ
-        // ==========================================
         (async function() {
             await loadData();
             render();
